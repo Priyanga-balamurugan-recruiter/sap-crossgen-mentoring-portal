@@ -6,6 +6,8 @@
 <title>SAP Cross-Generational Mentoring Portal &mdash; India 2026</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
 :root{--sh:#00144A;--sb:#FFFFFF;--pb:#F5F6F7;--cb:#FFFFFF;--tp:#32363A;--ts:#6A6D70;--bd:#E5E5E5;--ac:#0070F2;--bg2:#E1F4FF}
@@ -108,7 +110,7 @@ body.role-participant .lb-you-tag { display: inline-flex !important; }
 #other-pairs-notice { display: none; }
 body.role-participant #other-pairs-notice { display: block !important; }
 body.role-participant #participant-pair-pill { display: flex  !important; }
-body.role-participant #lb-prelaunch         { display: block !important; }
+body.role-participant #lb-prelaunch         { display: none !important; }
 
 /* Upload + participant table hidden for participants */
 body.role-participant #p1-upload-row  { display: none !important; }
@@ -182,6 +184,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
   <span style="color:rgba(255,255,255,.4);font-size:11.5px;margin-left:4px">India &middot; 2026 Cohort</span>
   <div style="flex:1"></div>
   <!-- Role toggle pill -->
+  <span id="fb-status" style="margin-right:8px" title="Checking sync..."><i class="fas fa-cloud" style="color:rgba(255,255,255,.4);font-size:11px"></i></span>
   <div id="role-toggle-pill" style="display:flex;align-items:center;gap:2px;background:rgba(255,255,255,.13);border-radius:16px;padding:3px;margin-right:6px">
     <button id="rtb-admin" class="rtb rtb-active"   onclick="setRole('admin')"       title="Switch to Admin view">Admin</button>
     <button id="rtb-part"  class="rtb rtb-inactive" onclick="setRole('participant')" title="Switch to Participant view">Participant</button>
@@ -1110,6 +1113,249 @@ body.role-participant #p1-participant-hero { display: block !important; }
 
 <script>
 // =========================================================
+// FIREBASE REALTIME DATABASE — Configuration & Initialization
+// =========================================================
+const _FB_CONFIG = {
+  apiKey: "AIzaSyCYNPOi8jM23wf045FgTcGpDhnVWyb0j3w",
+  authDomain: "sap-cgm-portal-34626.firebaseapp.com",
+  databaseURL: "https://sap-cgm-portal-34626-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "sap-cgm-portal-34626",
+  storageBucket: "sap-cgm-portal-34626.firebasestorage.app",
+  messagingSenderId: "1003448514388",
+  appId: "1:1003448514388:web:f313e1ff9717239c1bfac1"
+};
+
+let _fbApp = null, _fbDB = null, _fbConnected = false;
+try {
+  _fbApp = firebase.initializeApp(_FB_CONFIG);
+  _fbDB = firebase.database();
+  _fbConnected = true;
+} catch(e) { console.warn('Firebase init failed — running in offline mode:', e.message); }
+
+// ── Firebase Sync Helpers ───────────────────────────────────────────────────
+function _fbWrite(path, data) {
+  if (!_fbDB) return;
+  _fbDB.ref(path).set(data).catch(e => console.warn('FB write error:', e.message));
+}
+function _fbPush(path, data) {
+  if (!_fbDB) return;
+  _fbDB.ref(path).push(data).catch(e => console.warn('FB push error:', e.message));
+}
+function _fbRemove(path) {
+  if (!_fbDB) return;
+  _fbDB.ref(path).remove().catch(e => console.warn('FB remove error:', e.message));
+}
+
+// Sync flags to prevent loops
+let _fbSyncing = false;
+
+// ── Sync: SESSIONS ──────────────────────────────────────────────────────────
+function _fbSyncSessions() {
+  if (!_fbDB) return;
+  _fbDB.ref('sessions').set(SESSIONS);
+}
+function _fbListenSessions() {
+  if (!_fbDB) return;
+  _fbDB.ref('sessions').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && Array.isArray(data)) {
+      _fbSyncing = true;
+      SESSIONS.length = 0;
+      data.forEach(s => SESSIONS.push(s));
+      renderLeaderboard(); renderLBChart();
+      if (typeof currentJourneyIdx !== 'undefined') {
+        renderSessionLog(currentJourneyIdx);
+        updateJourneyKPIs();
+        renderCompChart();
+      }
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Sync: PAIR_JOURNEY ──────────────────────────────────────────────────────
+function _fbSyncJourney() {
+  if (!_fbDB) return;
+  // Convert sparse array to object for Firebase (sparse arrays don't serialize well)
+  const obj = {};
+  for (let i = 0; i < PAIR_JOURNEY.length; i++) {
+    if (PAIR_JOURNEY[i]) obj[i] = PAIR_JOURNEY[i];
+  }
+  // Also include dummy pair indices (100+)
+  if (typeof DUMMY_PAIRS !== 'undefined') {
+    DUMMY_PAIRS.forEach(dp => {
+      if (PAIR_JOURNEY[dp.idx]) obj[dp.idx] = PAIR_JOURNEY[dp.idx];
+    });
+  }
+  _fbDB.ref('journey').set(obj);
+}
+function _fbListenJourney() {
+  if (!_fbDB) return;
+  _fbDB.ref('journey').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && typeof data === 'object') {
+      _fbSyncing = true;
+      Object.keys(data).forEach(key => {
+        const idx = parseInt(key);
+        PAIR_JOURNEY[idx] = data[key];
+      });
+      if (typeof currentJourneyIdx !== 'undefined') {
+        updateJourneyKPIs();
+        renderCompChart();
+        if (typeof renderCurriculum === 'function') {
+          renderCurriculum(1);
+          renderCurriculum(2);
+        }
+      }
+      renderLeaderboard(); renderLBChart();
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Sync: PAIR STATUS (approvals) ───────────────────────────────────────────
+function _fbSyncPairStatus() {
+  if (!_fbDB) return;
+  const statuses = PAIRS.map(p => ({idx: p.idx, status: p.status}));
+  _fbDB.ref('pairStatus').set(statuses);
+}
+function _fbListenPairStatus() {
+  if (!_fbDB) return;
+  _fbDB.ref('pairStatus').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && Array.isArray(data)) {
+      _fbSyncing = true;
+      data.forEach(s => {
+        const pair = PAIRS.find(p => p.idx === s.idx);
+        if (pair) pair.status = s.status;
+      });
+      renderPairs();
+      renderLeaderboard();
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Sync: DUMMY PAIRS (admin-added test pairs) ──────────────────────────────
+function _fbSyncDummyPairs() {
+  if (!_fbDB) return;
+  _fbDB.ref('dummyPairs').set(DUMMY_PAIRS);
+  // Also sync their topics
+  const topicObj = {};
+  DUMMY_PAIRS.forEach(dp => {
+    if (DUMMY_PAIR_TOPICS[dp.idx]) topicObj[dp.idx] = DUMMY_PAIR_TOPICS[dp.idx];
+  });
+  _fbDB.ref('dummyPairTopics').set(topicObj);
+}
+function _fbListenDummyPairs() {
+  if (!_fbDB) return;
+  _fbDB.ref('dummyPairs').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && Array.isArray(data)) {
+      _fbSyncing = true;
+      DUMMY_PAIRS.length = 0;
+      data.forEach(d => DUMMY_PAIRS.push(d));
+      // Rebuild DUMMY_PARTICIPANTS from pairs
+      DUMMY_PARTICIPANTS.length = 0;
+      DUMMY_PAIRS.forEach(dp => {
+        DUMMY_PARTICIPANTS.push({name:dp.m1, type:'experienced', email:dp.email1, status:'Paired', loc:'India', isDummy:true});
+        DUMMY_PARTICIPANTS.push({name:dp.m2, type:'early', email:dp.email2, status:'Paired', loc:'India', isDummy:true});
+      });
+      renderPairs();
+      renderLeaderboard(); renderLBChart();
+      if (CURRENT_ROLE === 'admin') {
+        renderParticipants(getAllParticipants());
+      }
+      _fbSyncing = false;
+    }
+  });
+  _fbDB.ref('dummyPairTopics').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && typeof data === 'object') {
+      _fbSyncing = true;
+      Object.keys(data).forEach(key => {
+        DUMMY_PAIR_TOPICS[parseInt(key)] = data[key];
+      });
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Sync: NPS FEEDBACK ──────────────────────────────────────────────────────
+function _fbSyncFeedback() {
+  if (!_fbDB) return;
+  _fbDB.ref('feedback').set(FEEDBACK);
+}
+function _fbListenFeedback() {
+  if (!_fbDB) return;
+  _fbDB.ref('feedback').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && Array.isArray(data)) {
+      _fbSyncing = true;
+      FEEDBACK.length = 0;
+      data.forEach(f => FEEDBACK.push(f));
+      if (typeof updateP5NPSStats === 'function') updateP5NPSStats();
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Sync: RESOURCES ─────────────────────────────────────────────────────────
+function _fbSyncResources() {
+  if (!_fbDB) return;
+  const obj = {};
+  Object.keys(PAIR_RESOURCES).forEach(k => { if (PAIR_RESOURCES[k]) obj[k] = PAIR_RESOURCES[k]; });
+  _fbDB.ref('resources').set(obj);
+}
+function _fbListenResources() {
+  if (!_fbDB) return;
+  _fbDB.ref('resources').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && typeof data === 'object') {
+      _fbSyncing = true;
+      Object.keys(PAIR_RESOURCES).forEach(k => delete PAIR_RESOURCES[k]);
+      Object.keys(data).forEach(k => { PAIR_RESOURCES[parseInt(k)] = data[k]; });
+      if (typeof renderResources === 'function') renderResources();
+      _fbSyncing = false;
+    }
+  });
+}
+
+// ── Master: Start all listeners on page load ────────────────────────────────
+function _fbStartListeners() {
+  if (!_fbDB) return;
+  _fbListenSessions();
+  _fbListenJourney();
+  _fbListenPairStatus();
+  _fbListenDummyPairs();
+  _fbListenFeedback();
+  _fbListenResources();
+}
+
+// ── Connection status indicator ─────────────────────────────────────────────
+function _fbShowStatus() {
+  if (!_fbDB) return;
+  _fbDB.ref('.info/connected').on('value', snap => {
+    const el = document.getElementById('fb-status');
+    if (!el) return;
+    if (snap.val() === true) {
+      el.innerHTML = '<i class="fas fa-cloud" style="color:#107E3E;font-size:11px" title="Real-time sync active"></i>';
+      el.title = 'Real-time sync active';
+    } else {
+      el.innerHTML = '<i class="fas fa-cloud-slash" style="color:#E8A000;font-size:11px" title="Offline — changes will sync when reconnected"></i>';
+      el.title = 'Offline — changes will sync when reconnected';
+    }
+  });
+}
+
+// =========================================================
 // SAFETY — graceful fallback if Chart.js CDN fails to load
 if (typeof Chart === 'undefined') {
   window.Chart = function() { this.destroy = function(){}; };
@@ -1313,6 +1559,15 @@ function identifyUser(email) {
     const e2 = (p.email2||'').toLowerCase();
     if (e1 && e1 === lc) return { role:'participant', email:lc, name:p.m1, initials:p.i1, color:p.c1, subtitle:'Experienced Talent', pairIdx:p.idx };
     if (e2 && e2 === lc) return { role:'participant', email:lc, name:p.m2, initials:p.i2, color:p.c2, subtitle:'Early Talent',        pairIdx:p.idx };
+  }
+  // Also check DUMMY_PAIRS — test pair participants can log in too
+  if (typeof DUMMY_PAIRS !== 'undefined') {
+    for (const p of DUMMY_PAIRS) {
+      const e1 = (p.email1||'').toLowerCase();
+      const e2 = (p.email2||'').toLowerCase();
+      if (e1 && e1 === lc) return { role:'participant', email:lc, name:p.m1, initials:p.i1, color:p.c1, subtitle:'Experienced Talent (Test)', pairIdx:p.idx, isDummy:true };
+      if (e2 && e2 === lc) return { role:'participant', email:lc, name:p.m2, initials:p.i2, color:p.c2, subtitle:'Early Talent (Test)',        pairIdx:p.idx, isDummy:true };
+    }
   }
   return null; // not enrolled
 }
@@ -1569,7 +1824,10 @@ const DUMMY_PAIR_TOPICS = {
 
 /** Returns all pairs for admin (real + dummy), real-only for participant/guest. */
 function getAllPairs() {
-  return CURRENT_ROLE === 'admin' ? [...PAIRS, ...DUMMY_PAIRS] : PAIRS;
+  if (CURRENT_ROLE === 'admin') return [...PAIRS, ...DUMMY_PAIRS];
+  // Participant/guest: show real pairs + only their own dummy pair (if applicable)
+  const myDummy = DUMMY_PAIRS.find(d => d.idx === MY_PAIR_IDX);
+  return myDummy ? [...PAIRS, myDummy] : PAIRS;
 }
 
 /** Returns all participants for admin (real + dummy), real-only for participant/guest. */
@@ -2038,7 +2296,7 @@ function computeAIInsights() {
   }
 
   // Insight 4 — Session readiness / activity
-  if (PILOT_STARTED && totalSessions > 0) {
+  if (totalSessions > 0) {
     insights.push({icon:"fas fa-calendar-check",color:"#7B1FA2",bg:"#F3E5F5",
       title:`${totalSessions} Sessions Logged`,
       body:`Across ${activePairs} active pairs, ${totalSessions} sessions have been recorded. Program completion is tracking well toward target.`,
@@ -2241,7 +2499,7 @@ function handleFileUpload(inp) {
 function renderPairs() {
   const grid = document.getElementById("pairs-grid");
   if (!grid) return;
-  const pairsToShow = CURRENT_ROLE === "participant" ? PAIRS.filter(p => p.idx === MY_PAIR_IDX) : getAllPairs();
+  const pairsToShow = CURRENT_ROLE === "participant" ? getAllPairs().filter(p => p.idx === MY_PAIR_IDX) : getAllPairs();
   grid.innerHTML = pairsToShow.map(p => {
     const approved = p.status === "Approved";
     const sc = scoreColor(p.score);
@@ -2391,6 +2649,7 @@ function toggleApprovePair(idx) {
   renderStatusChart();
   updatePairKPIs();
   updateJourneyGuard();
+  _fbSyncPairStatus();
 }
 
 // ─── Topic-based scoring ─────────────────────────────────────────────────────
@@ -2829,6 +3088,7 @@ function toggleTopic(tabIdx, itemIdx, cb) {
     else pj.tradDone[itemIdx] = false;
     renderCurriculum(tabIdx);
     updateJourneyKPIs();
+    _fbSyncJourney();
     showToast("Topic marked as pending.");
   }
 }
@@ -2874,6 +3134,8 @@ function confirmTopicDate() {
   renderSessionLog(currentJourneyIdx);
   updateJourneyKPIs();
   renderLeaderboard();
+  _fbSyncSessions();
+  _fbSyncJourney();
   showToast(`Session logged: "${topicTitle}" on ${dateFormatted}`);
 }
 
@@ -3115,6 +3377,7 @@ function logSession() {
   renderSessionLog(currentJourneyIdx);
   updateJourneyKPIs();
   renderLeaderboard();
+  _fbSyncSessions();
   showToast("Session logged successfully!");
 }
 
@@ -3135,6 +3398,8 @@ function deleteSession(globalIdx) {
   if (sess.autoLogged) renderCurriculum(sess.tabIdx);
   updateJourneyKPIs();
   renderLeaderboard();
+  _fbSyncSessions();
+  if (sess.autoLogged) _fbSyncJourney();
   showToast(`Session deleted. "${topicName}" can be logged again.`);
 }
 
@@ -3234,7 +3499,7 @@ function renderCompChart() {
     const pctEl = chartParent.querySelector('p[style*="font-size:22px"]');
     const subEl = chartParent.querySelector('p[style*="font-size:11px"]');
     if (pctEl) pctEl.textContent = pct + "%";
-    if (subEl) subEl.textContent = (PILOT_STARTED || _dp) ? "Curriculum completion" : "Program progress (pilot not started)";
+    if (subEl) subEl.textContent = "Curriculum completion";
   }
 }
 
@@ -3251,9 +3516,11 @@ function getPairScore(pairIdx) {
     const ps = SESSIONS.filter(s => s.pairIdx === pairIdx);
     const baseline = dp.testSessions || 0;
     const totalSess = ps.length + baseline;
-    const assignedTopics = (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[pairIdx])
+    let assignedTopics = (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[pairIdx])
       ? DUMMY_PAIR_TOPICS[pairIdx].length : 0;
-    if (assignedTopics === 0) return { meetings: 0, session: 0, refl: 0 };
+    // Fallback: if no topics explicitly assigned, use standard curriculum size (4 rev + 4 trad = 8)
+    if (assignedTopics === 0) assignedTopics = 8;
+    if (totalSess === 0) return { meetings: 0, session: 0, refl: 0 };
     const completionRatio = Math.min(totalSess / assignedTopics, 1);
     const meetings = Math.round(completionRatio * 40);
     const session  = Math.round(completionRatio * 35);
@@ -3285,45 +3552,36 @@ function renderLeaderboard() {
   // Hide pre-pilot placeholder once pilot is live
   const preLaunch = document.getElementById('lb-prelaunch');
   if (preLaunch) {
-    if (PILOT_STARTED) preLaunch.style.setProperty('display', 'none', 'important');
-    else preLaunch.style.removeProperty('display');
+    preLaunch.style.setProperty('display', 'none', 'important');
   }
 
-  // Sort logic:
-  // - Admin view: always sort by total leaderboard score descending (dummy pairs have real scores).
-  //   Ties broken by match score. Pairs with 0 pts sorted by approval then match score.
-  // - Participant view pre-pilot: approved first, then by match score.
-  // - Participant view live pilot: by total score.
+  // Sort logic: always sort by total leaderboard score descending.
+  // Ties broken by match score. Approved pairs with 0 pts still ranked by approval then match.
   const _allPairs = getAllPairs();
   const _getTotal = (p) => { const s = getPairScore(p.idx); return s.meetings + s.session + s.refl; };
-  const sorted = (PILOT_STARTED || CURRENT_ROLE === 'admin')
-    ? [..._allPairs].sort((a,b) => {
-        const ta = _getTotal(a), tb = _getTotal(b);
-        if (tb !== ta) return tb - ta;
-        return b.score - a.score;
-      })
-    : [..._allPairs].sort((a,b) => {
-        if (a.status === "Approved" && b.status !== "Approved") return -1;
-        if (b.status === "Approved" && a.status !== "Approved") return  1;
-        return b.score - a.score;
-      });
+  const sorted = [..._allPairs].sort((a,b) => {
+      const ta = _getTotal(a), tb = _getTotal(b);
+      if (tb !== ta) return tb - ta;
+      // Tie-break: approved first, then match score
+      if (a.status === "Approved" && b.status !== "Approved") return -1;
+      if (b.status === "Approved" && a.status !== "Approved") return  1;
+      return b.score - a.score;
+    });
 
   const medals = ["&#129351;","&#129354;","&#129353;"];
   tbody.innerHTML = sorted.map((p, i) => {
     const isApproved = p.status === "Approved";
     const isDummyRow = !!p.isDummy;
-    // Dummy pairs always show scores (test data); real pairs wait for PILOT_STARTED
-    const _showScores = PILOT_STARTED || isDummyRow;
+    // Always show real-time scores — leaderboard tracks journey tracker data live
+    const _showScores = true;
     const {meetings: mPts, session: sPts, refl: rPts} = _showScores ? getPairScore(p.idx) : {meetings:0, session:0, refl:0};
     const total = mPts + sPts + rPts;
 
-    const statusPill = !PILOT_STARTED
-      ? (isDummyRow
-          ? ''
-          : isApproved
-          ? ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7;vertical-align:middle"><i class="fas fa-check-circle"></i>Approved</span>'
-          : ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80;vertical-align:middle"><i class="fas fa-hourglass-half"></i>Pending</span>')
-      : "";
+    const statusPill = isDummyRow
+      ? ''
+      : isApproved
+      ? ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7;vertical-align:middle"><i class="fas fa-check-circle"></i>Approved</span>'
+      : ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80;vertical-align:middle"><i class="fas fa-hourglass-half"></i>Pending</span>';
 
     const trend = _showScores
       ? (i < 3 ? '<i class="fas fa-arrow-up" style="color:#107E3E"></i>'
@@ -3342,7 +3600,7 @@ function renderLeaderboard() {
     const youTag   = isMyPair ? '&nbsp;<span class="bdg bbl lb-you-tag" style="font-size:10px;vertical-align:middle">You</span>' : "";
     const testTag  = isDummyRow ? '&nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;background:#EDE7FF;color:#5C35CC;border:1px solid #C5B8FA;vertical-align:middle"><i class="fas fa-flask"></i> Test</span>' : "";
     const rowStyle = isMyPair ? `background:${rowBg};outline:2px solid var(--ac);outline-offset:-2px` : `background:${rowBg}`;
-    const rowOpacity = (!PILOT_STARTED && !isApproved && !isDummyRow) ? "opacity:.55;" : "";
+    const rowOpacity = (!isApproved && !isDummyRow) ? "opacity:.55;" : "";
 
     return `<tr style="${rowStyle}${rowOpacity}"><td><span style="font-size:16px">${medals[i]||"#"+(i+1)}</span></td>
     <td><div style="display:flex;align-items:center;gap:8px"><div style="display:flex"><div class="av" style="background:${p.c1};width:24px;height:24px;font-size:9px;z-index:2">${p.i1}</div><div class="av" style="background:${p.c2};width:24px;height:24px;font-size:9px;margin-left:-6px">${p.i2}</div></div><span style="font-weight:600;font-size:12.5px">${p.m1} &amp; ${p.m2}${youTag}${testTag}${statusPill}</span></div></td>
@@ -3357,21 +3615,20 @@ function renderLeaderboard() {
     const rankTitle = document.getElementById("rank-banner-title");
     const rankSub   = document.getElementById("rank-banner-sub");
     const rankPts   = document.getElementById("rank-banner-pts");
-    if (!PILOT_STARTED) {
-      // Pilot not yet started — show awaiting message
-      if (rankTitle) rankTitle.textContent = "Leaderboard tracking begins when sessions kick off!";
-      if (rankSub)   rankSub.innerHTML = myPair.m1 + " &amp; " + myPair.m2 + " &middot; Log your first session to earn points";
-      if (rankPts)   rankPts.textContent = "0";
-      const rankBannerPtsLabel = rankPts && rankPts.nextElementSibling;
-      if (rankBannerPtsLabel) rankBannerPtsLabel.textContent = "pts (not started)";
-    } else {
-      const myRank = sorted.findIndex(p => p.idx === MY_PAIR_IDX) + 1;
-      const myScore = getPairScore(MY_PAIR_IDX);
-      const myTotal = myScore.meetings + myScore.session + myScore.refl;
-      const ordinals = ["","1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th"];
+    const myRank = sorted.findIndex(p => p.idx === MY_PAIR_IDX) + 1;
+    const myScore = getPairScore(MY_PAIR_IDX);
+    const myTotal = myScore.meetings + myScore.session + myScore.refl;
+    const ordinals = ["","1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th"];
+    if (myTotal > 0) {
       if (rankTitle) rankTitle.textContent = "You are currently ranked " + (ordinals[myRank] || "#"+myRank) + " this month!";
       if (rankSub)   rankSub.innerHTML = myPair.m1 + " &amp; " + myPair.m2 + " &middot; " + myTotal + " pts &middot; Keep going to win recognition at the Pilot Closure event";
       if (rankPts)   rankPts.textContent = myTotal;
+    } else {
+      if (rankTitle) rankTitle.textContent = "Log your first session to start earning points!";
+      if (rankSub)   rankSub.innerHTML = myPair.m1 + " &amp; " + myPair.m2 + " &middot; Use the Journey Tracker to log sessions";
+      if (rankPts)   rankPts.textContent = "0";
+      const rankBannerPtsLabel = rankPts && rankPts.nextElementSibling;
+      if (rankBannerPtsLabel) rankBannerPtsLabel.textContent = "pts";
     }
   }
   // Dynamic podium and highlight cards
@@ -3401,13 +3658,7 @@ function renderLBPodium() {
   const container = document.getElementById("lb-podium-container");
   if (!container) return;
   const _pGetTotal = (p) => { const s = getPairScore(p.idx); return s.meetings + s.session + s.refl; };
-  const sorted = (PILOT_STARTED || CURRENT_ROLE === 'admin')
-    ? getAllPairs().sort((a,b) => { const ta = _pGetTotal(a), tb = _pGetTotal(b); return tb !== ta ? tb - ta : b.score - a.score; })
-    : getAllPairs().sort((a,b) => {
-        if (a.status === "Approved" && b.status !== "Approved") return -1;
-        if (b.status === "Approved" && a.status !== "Approved") return  1;
-        return b.score - a.score;
-      });
+  const sorted = getAllPairs().sort((a,b) => { const ta = _pGetTotal(a), tb = _pGetTotal(b); return tb !== ta ? tb - ta : b.score - a.score; });
   if (sorted.length < 3) { container.innerHTML = '<div class="sh2"><i class="fas fa-medal" style="color:#0070F2"></i>This Month\'s Top 3</div><p style="color:var(--ts);font-size:13px">Not enough pairs to display podium.</p>'; return; }
   // podiumOrder: [silver/2nd, gold/1st, bronze/3rd]
   const podiumOrder = [sorted[1], sorted[0], sorted[2]];
@@ -3417,8 +3668,7 @@ function renderLBPodium() {
   const pdClasses   = ["pd2","pd1","pd3"];
 
   function getScore(p) {
-    if (PILOT_STARTED || p.isDummy) { const s = getPairScore(p.idx); return (s.meetings+s.session+s.refl) + " pts"; }
-    return p.score + "% match";
+    const s = getPairScore(p.idx); return (s.meetings+s.session+s.refl) + " pts";
   }
 
   const items = podiumOrder.map((p, i) => {
@@ -3433,29 +3683,23 @@ function renderLBPodium() {
 function renderHighlightCards() {
   const container = document.getElementById("lb-highlight-cards");
   if (!container) return;
-  const _useScores = PILOT_STARTED || CURRENT_ROLE === 'admin';
   const byTotal = getAllPairs().sort((a,b) => {
-    if (_useScores) {
-      const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
-      return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
-    }
-    return b.score - a.score;
+    const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
+    return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
   });
   function pairName(p) { return p.m1.split(" ")[0] + " &amp; " + p.m2.split(" ")[0]; }
   function pairPts(p)  {
-    if (_useScores) { const s = getPairScore(p.idx); return "Score: " + (s.meetings+s.session+s.refl) + " pts"; }
-    return "Match: " + p.score + "%";
+    const s = getPairScore(p.idx); return "Score: " + (s.meetings+s.session+s.refl) + " pts";
   }
   function resPts(p) {
-    if (_useScores) { return (PAIR_RESOURCES[p.idx]||[]).length + " file(s) uploaded"; }
-    return "Match: " + p.score + "%";
+    return (PAIR_RESOURCES[p.idx]||[]).length + " file(s) uploaded";
   }
-  // Most Active  — highest meeting points (pre-pilot: #1 overall)
-  const mostActive      = _useScores ? getAllPairs().sort((a,b) => getPairScore(b.idx).meetings - getPairScore(a.idx).meetings)[0] : byTotal[0];
-  // Best Reflection — highest reflection points (pre-pilot: #2 overall)
-  const bestRefl        = _useScores ? getAllPairs().sort((a,b) => getPairScore(b.idx).refl    - getPairScore(a.idx).refl   )[0] : (byTotal[1]||byTotal[0]);
-  // Most Resources  — highest actual uploaded resource count (pre-pilot: #3 overall by match score)
-  const mostResources   = _useScores ? getAllPairs().sort((a,b) => (PAIR_RESOURCES[b.idx]||[]).length - (PAIR_RESOURCES[a.idx]||[]).length)[0] : (byTotal[2]||byTotal[0]);
+  // Most Active  — highest meeting points
+  const mostActive      = getAllPairs().sort((a,b) => getPairScore(b.idx).meetings - getPairScore(a.idx).meetings)[0];
+  // Best Reflection — highest reflection points
+  const bestRefl        = getAllPairs().sort((a,b) => getPairScore(b.idx).refl    - getPairScore(a.idx).refl   )[0];
+  // Most Resources  — highest actual uploaded resource count
+  const mostResources   = getAllPairs().sort((a,b) => (PAIR_RESOURCES[b.idx]||[]).length - (PAIR_RESOURCES[a.idx]||[]).length)[0];
   // Fastest Progress — 4th overall by total score
   const fastestProgress = byTotal[3] || byTotal[0];
   const cards = [
@@ -4601,6 +4845,7 @@ function submitNPS() {
   if (mod) mod.classList.remove("open");
   showToast("Thank you for your feedback — your response has been recorded.");
   updateP5NPSStats();
+  _fbSyncFeedback();
 }
 
 function computeNPS() {
@@ -5008,10 +5253,16 @@ function saveAddDummyPair() {
 
   const newPair = {idx, m1:mentor, m2:mentee, i1, i2, c1, c2, score, loc:'India', status:'Approved', badge:'&#127775;', sessions, isDummy:true, testSessions:sessions, email1, email2, cats:['Test Data'], topics:'', tradTopics:[], revTopics:[]};
   DUMMY_PAIRS.push(newPair);
-  // Seed empty topics for journey tracker
-  DUMMY_PAIR_TOPICS[idx] = [];
-  // Initialize PAIR_JOURNEY entry to prevent crashes when opening in Journey Tracker
-  PAIR_JOURNEY[idx] = {sessions:0, topics:0, resources:0, engagement:"0%", revDone:[false,false,false,false], tradDone:[false,false,false,false]};
+  // Generate curriculum-based topics so scoring and journey tracker work immediately
+  const _curriculum = generatePairCurriculum(idx);
+  const _genTopics = [];
+  (_curriculum.rev || []).forEach((t, i) => _genTopics.push({t: t.title, type:'Reverse', done: i < Math.ceil(sessions / 2)}));
+  (_curriculum.trad || []).forEach((t, i) => _genTopics.push({t: t.title, type:'Traditional', done: i < Math.floor(sessions / 2)}));
+  DUMMY_PAIR_TOPICS[idx] = _genTopics;
+  // Initialize PAIR_JOURNEY entry synced with generated topics
+  const _revDone = (_curriculum.rev || []).map((_, i) => i < Math.ceil(sessions / 2));
+  const _tradDone = (_curriculum.trad || []).map((_, i) => i < Math.floor(sessions / 2));
+  PAIR_JOURNEY[idx] = {sessions: sessions, topics: _genTopics.filter(t=>t.done).length, resources:0, engagement:"0%", revDone: _revDone, tradDone: _tradDone};
   DUMMY_PARTICIPANTS.push({name:mentor, type:'experienced', email:email1, status:'Paired', loc:'India', isDummy:true});
   DUMMY_PARTICIPANTS.push({name:mentee, type:'early', email:email2, status:'Paired', loc:'India', isDummy:true});
 
@@ -5027,6 +5278,7 @@ function saveAddDummyPair() {
   closeAddDummyPairModal();
   showToast('Dummy pair added: ' + mentor + ' & ' + mentee);
   logActivity('Added dummy pair: ' + mentor + ' & ' + mentee + ' (score ' + score + '%, ' + sessions + ' sessions)');
+  _fbSyncDummyPairs(); _fbSyncSessions(); _fbSyncJourney();
 }
 
 function closeAddDummyPairModal() {
@@ -5061,6 +5313,7 @@ function deleteDummyPair(idx) {
   if (pSel) { pSel._lastRole = null; }
   showToast('Test pair removed: ' + pair.m1 + ' & ' + pair.m2);
   logActivity('Deleted dummy pair: ' + pair.m1 + ' & ' + pair.m2);
+  _fbSyncDummyPairs(); _fbSyncSessions(); _fbSyncJourney();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

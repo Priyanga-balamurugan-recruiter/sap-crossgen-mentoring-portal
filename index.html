@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SAP Cross-Generational Mentoring Portal &mdash; India 2026</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
 :root{--sh:#00144A;--sb:#FFFFFF;--pb:#F5F6F7;--cb:#FFFFFF;--tp:#32363A;--ts:#6A6D70;--bd:#E5E5E5;--ac:#0070F2;--bg2:#E1F4FF}
@@ -233,7 +234,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:13px;color:var(--ts);margin-top:2px;padding-left:14px">Upload participants &middot; AI-powered matching &middot; Manage &amp; approve pairs</p>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn bg2 sm" onclick="showToast('Exporting pairing report...')"><i class="fas fa-file-excel"></i> Export</button>
+      <button class="btn bg2 sm" onclick="exportParticipantsCSV()"><i class="fas fa-file-excel"></i> Export</button>
       <span class="admin-only"><button class="btn bp sm" onclick="runAIMatch()"><i class="fas fa-magic"></i> Run AI Match</button></span>
     </div>
   </div>
@@ -262,10 +263,16 @@ body.role-participant #p1-participant-hero { display: block !important; }
       </div>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn bp sm" style="flex:1" onclick="simulateUpload()"><i class="fas fa-table"></i> Load Sample</button>
-        <button class="btn bg2 sm" onclick="showToast('Template downloaded')"><i class="fas fa-download"></i></button>
+        <button class="btn bg2 sm" onclick="downloadParticipantTemplate()" title="Download template"><i class="fas fa-download"></i></button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <div style="flex:1;height:1px;background:var(--bd)"></div>
+        <span style="font-size:11px;color:var(--ts);white-space:nowrap">or add manually</span>
+        <div style="flex:1;height:1px;background:var(--bd)"></div>
+      </div>
+      <button class="btn bg2 sm admin-only" style="width:100%;margin-top:6px" onclick="openAddDummyPairModal()"><i class="fas fa-flask"></i> Add Dummy Pair</button>
       <div id="upload-status" style="display:none;margin-top:10px">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#107E3E"><i class="fas fa-check-circle"></i> 30 participants loaded</div>
+        <div id="upload-status-text" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#107E3E"><i class="fas fa-check-circle"></i> 30 participants loaded</div>
         <div class="prog" style="margin-top:6px"><div class="pf" style="width:100%;background:#107E3E"></div></div>
       </div>
     </div>
@@ -285,6 +292,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
     <div style="padding:14px 16px;border-bottom:1px solid var(--bd);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px">
       <div class="sh2" style="margin-bottom:0"><i class="fas fa-users" style="color:#0070F2"></i>All Participants <span style="font-size:12px;font-weight:400;color:var(--ts)">(30)</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn bp sm admin-only" onclick="openAddDummyPairModal()"><i class="fas fa-flask"></i> Add Dummy Pair</button>
         <select id="tf" onchange="filterP()" style="height:30px;padding:3px 8px;font-size:12px"><option value="all">All Types</option><option value="early">Early Talent</option><option value="experienced">Experienced</option></select>
         <input id="nf" type="text" placeholder="Search name..." oninput="filterP()" style="height:30px;width:130px;font-size:12px">
       </div>
@@ -311,7 +319,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
   <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px">
     <div class="sh2" style="margin-bottom:0"><i class="fas fa-link" style="color:#0070F2"></i>AI-Generated Pairs <span style="font-size:12px;font-weight:400;color:var(--ts)" id="pairs-subhead">(15 total &middot; avg 93% match)</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn bg2 sm" onclick="showToast('Pairs exported')"><i class="fas fa-file-excel"></i> Export</button>
+      <button class="btn bg2 sm" onclick="exportPairsCSV()"><i class="fas fa-file-excel"></i> Export</button>
       <span class="admin-only" style="display:flex;gap:6px">
         <button class="btn bsc sm" onclick="approveAll()"><i class="fas fa-check-double"></i> Approve All</button>
         <button class="btn sm" style="background:#BB0000;color:#fff" onclick="unapproveAll()"><i class="fas fa-times-circle"></i> Unapprove All</button>
@@ -366,7 +374,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <div class="participant-only" id="participant-pair-pill" style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(0,112,242,.07);border:1px solid rgba(0,112,242,.25);border-radius:6px"></div>
       <select id="pair-sel" onchange="loadJourney(this.value)" style="height:32px;padding:4px 10px;font-size:13px;min-width:220px" class="admin-only"></select>
       <button class="btn bp sm" onclick="openScheduleModal()" style="gap:5px"><i class="fas fa-calendar-plus"></i> Schedule</button>
-      <button class="btn bg2 sm" onclick="showToast('Progress report generated')"><i class="fas fa-file-alt"></i></button>
+      <button class="btn bg2 sm" onclick="exportProgressReport()" title="Export progress report as CSV"><i class="fas fa-file-alt"></i></button>
     </div>
   </div>
 
@@ -387,7 +395,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
     <div class="kpi"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Sessions Done</p><p id="js" style="font-size:28px;font-weight:900;color:#0070F2;margin-top:4px">0</p><p style="font-size:11px;color:var(--ts);margin-top:2px">of planned</p></div>
     <div class="kpi" style="--ac:#107E3E"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Topics Covered</p><p id="jt" style="font-size:28px;font-weight:900;color:#107E3E;margin-top:4px">0</p><p id="jt-sub" style="font-size:11px;color:var(--ts);margin-top:2px">of curriculum</p></div>
     <div class="kpi" style="--ac:#E8A000"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Resources</p><p id="jr" style="font-size:28px;font-weight:900;color:#E8A000;margin-top:4px">0</p><p style="font-size:11px;color:var(--ts);margin-top:2px">files uploaded</p></div>
-    <div class="kpi"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Engagement</p><p id="je" style="font-size:28px;font-weight:900;color:#0070F2;margin-top:4px">0%</p><p style="font-size:11px;color:var(--ts);margin-top:2px">above average</p></div>
+    <div class="kpi"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Engagement</p><p id="je" style="font-size:28px;font-weight:900;color:#0070F2;margin-top:4px">0%</p><p style="font-size:11px;color:var(--ts);margin-top:2px">completion</p></div>
   </div>
 
   <!-- Main 2-column grid -->
@@ -545,7 +553,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
     </div>
   </div>
 
-  <div style="margin-bottom:20px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><div style="width:4px;height:28px;background:linear-gradient(180deg,#7B1FA2,#0070F2);border-radius:4px;flex-shrink:0"></div><h1 style="font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0">Program Hub &amp; Support Center</h1></div><p style="font-size:13px;color:var(--ts);margin-top:3px">Core team &middot; Materials &middot; FAQs &middot; Announcements &middot; AI Assistant</p></div>
+  <div style="margin-bottom:20px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><div style="width:4px;height:28px;background:linear-gradient(180deg,#7B1FA2,#0070F2);border-radius:4px;flex-shrink:0"></div><h1 style="font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0">Program Hub &amp; Support Center</h1></div><p style="font-size:13px;color:var(--ts);margin-top:3px">Core team &middot; Materials &middot; FAQs &middot; Announcements &middot; AI Assistant</p><p style="font-size:12.5px;color:var(--tp);margin-top:8px;background:rgba(0,112,242,.06);border:1px solid rgba(0,112,242,.15);border-radius:8px;padding:8px 14px;display:inline-flex;align-items:center;gap:8px"><i class="fas fa-envelope" style="color:#0070F2"></i>For any questions, reach out to <a href="mailto:IndiaHR@sap.com" style="color:#0070F2;font-weight:700;text-decoration:none">IndiaHR@sap.com</a></p></div>
   <!-- Team -->
   <div class="sh2"><i class="fas fa-users-cog" style="color:#0070F2"></i>Cross-Generational Mentoring Project Team</div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:16px;margin-bottom:16px">
@@ -555,8 +563,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">Talent Discovery Manager</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:manimoy.biswas@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
     <div class="card" style="padding:20px;text-align:center">
@@ -565,8 +572,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">Talent Discovery Partner</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:priyanga.balamurugan@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
     <div class="card" style="padding:20px;text-align:center">
@@ -575,8 +581,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">PMO to HR Head India</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:surabhi.sethi@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
     <div class="card" style="padding:20px;text-align:center">
@@ -585,8 +590,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">SAP Academy</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:aakriti.sharma@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
     <div class="card" style="padding:20px;text-align:center">
@@ -595,8 +599,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">VT STAR Manager</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:rachita.sreedasyam@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
     <div class="card" style="padding:20px;text-align:center">
@@ -605,8 +608,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       <p style="font-size:11px;color:var(--ts);margin-top:6px">PMO to HR Head India</p>
       <div style="display:flex;gap:6px;justify-content:center;margin-top:10px">
         <a href="mailto:benjin.samuel@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        <button class="btn bg2 sm" onclick="showToast('Opening SAP profile...')"><i class="fas fa-id-badge" style="font-size:11px"></i></button>
-        <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
+
       </div>
     </div>
   </div>
@@ -622,7 +624,6 @@ body.role-participant #p1-participant-hero { display: block !important; }
         </div>
         <div style="margin-left:auto;display:flex;gap:5px">
           <a href="mailto:rishabh.tripathi@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-          <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--cb);border:1px solid var(--bd);flex:1;min-width:220px">
@@ -633,7 +634,6 @@ body.role-participant #p1-participant-hero { display: block !important; }
         </div>
         <div style="margin-left:auto;display:flex;gap:5px">
           <a href="mailto:shweta.mohanty@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-          <button class="btn bg2 sm" onclick="showToast('Opening Teams chat...')"><i class="fas fa-comment-dots" style="font-size:11px"></i></button>
         </div>
       </div>
     </div>
@@ -718,9 +718,9 @@ body.role-participant #p1-participant-hero { display: block !important; }
   <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px">
     <div><h1 style="font-size:19px;font-weight:800">Program Insights Dashboard <span class="bdg brd" style="margin-left:6px">Admin Only</span></h1><p style="font-size:13px;color:var(--ts);margin-top:3px">Real-time analytics &middot; AI insights &middot; Executive reporting</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn bg2 sm" onclick="showToast('Exporting Executive Summary PDF...')"><i class="fas fa-file-pdf" style="color:#E9730C"></i> PDF</button>
-      <button class="btn bg2 sm" onclick="showToast('Generating PowerPoint dashboard...')"><i class="fas fa-file-powerpoint" style="color:#D32F2F"></i> PPT</button>
-      <button class="btn bg2 sm" onclick="showToast('Exporting Excel report...')"><i class="fas fa-file-excel" style="color:#107E3E"></i> Excel</button>
+      <button class="btn bg2 sm" onclick="exportInsightsPrint()"><i class="fas fa-file-pdf" style="color:#E9730C"></i> PDF</button>
+      <button class="btn bg2 sm" onclick="exportInsightsPPT()"><i class="fas fa-file-powerpoint" style="color:#D32F2F"></i> PPT</button>
+      <button class="btn bg2 sm" onclick="exportInsightsCSV()"><i class="fas fa-file-excel" style="color:#107E3E"></i> Excel</button>
       <button class="btn bp sm" id="nps-launch-btn" onclick="launchNPSSurvey()" style="background:#7B1FA2;border-color:#7B1FA2"><i class="fas fa-poll"></i> Launch NPS Survey</button>
     </div>
     <div id="nps-survey-banner" style="display:none;background:#F3E5F5;border:1.5px solid #7B1FA2;border-radius:8px;padding:10px 14px;margin-top:10px;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1137,7 +1137,7 @@ function _getJourneyState(idx) {
     const saved = localStorage.getItem(key);
     if (saved) return JSON.parse(saved);
   } catch(e) {}
-  const topics = PAIR_TOPICS[idx] || [];
+  const topics = PAIR_TOPICS[idx] || (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[idx]) || [];
   return { sessions: topics.map(() => ({ done: false, notes: '' })) };
 }
 
@@ -1182,7 +1182,7 @@ function toggleSessionCard(pairIdx, si) {
 function renderDiscussionTopics(idx) {
   const el = document.getElementById('c0');
   if (!el) return;
-  const topics = PAIR_TOPICS[idx] || [];
+  const topics = PAIR_TOPICS[idx] || (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[idx]) || [];
   const state  = _getJourneyState(idx);
 
   const CAT_COLOR = t => {
@@ -1523,6 +1523,60 @@ const PARTICIPANTS = [
   {name:"Ansh",type:"early",email:"ansh.bomb@sap.com",status:"Paired",loc:"India"},
 ];
 
+// ─── DUMMY TEST PAIRS (admin-only, never visible to participants) ──────────
+// Pre-seeded with 3 pairs; admin can add up to 5 via "Add Dummy Pair" modal.
+// testSessions drives the leaderboard score calculation for dummy pairs.
+let DUMMY_PAIRS = [
+  {idx:100,m1:'Aryan Kapoor',  m2:'Meera Nair',   i1:'AK',i2:'MN',c1:'#5C35CC',c2:'#E91E7A',score:88,loc:'India',status:'Approved',badge:'&#127775;',sessions:5,isDummy:true,testSessions:5, email1:'aryan.kapoor@sap.com', email2:'meera.nair@sap.com', cats:['AI & Technology','Career & Growth'], topics:'AI productivity tools, Async vs formal communication, Gen Z approach to problem solving, Modern Learning Mindsets, Career planning without a fixed roadmap, Building visibility at work, Strategic Thinking, Executive Communication', tradTopics:['Career planning without a fixed roadmap','Building visibility at work','Strategic Thinking','Executive Communication'], revTopics:['AI productivity tools','Async vs formal communication','Gen Z approach to problem solving','Modern Learning Mindsets']},
+  {idx:101,m1:'Kiran Patel',   m2:'Divya Reddy',  i1:'KP',i2:'DR',c1:'#00897B',c2:'#F57F17',score:76,loc:'India',status:'Approved',badge:'&#127775;',sessions:2,isDummy:true,testSessions:2, email1:'kiran.patel@sap.com', email2:'divya.reddy@sap.com', cats:['Communication','People & Culture'], topics:'Cross-generational communication styles, Building trust in new teams, Feedback culture across generations', tradTopics:['Building trust in new teams'], revTopics:['Cross-generational communication styles','Feedback culture across generations']},
+  {idx:102,m1:'Suresh Iyer',   m2:'Pooja Verma',  i1:'SI',i2:'PV',c1:'#1565C0',c2:'#6A1B9A',score:93,loc:'India',status:'Approved',badge:'&#127775;',sessions:8,isDummy:true,testSessions:8, email1:'suresh.iyer@sap.com', email2:'pooja.verma@sap.com', cats:['Strategy & Decisions','Career & Growth'], topics:'Decision-making in ambiguity, Strategic thinking for early career, Product roadmap evolution, Leadership transition frameworks, Stakeholder management, Innovation and risk appetite', tradTopics:['Decision-making in ambiguity','Leadership transition frameworks','Stakeholder management'], revTopics:['Strategic thinking for early career','Product roadmap evolution','Innovation and risk appetite']},
+];
+let DUMMY_PARTICIPANTS = [
+  {name:'Aryan Kapoor', type:'experienced',email:'aryan.kapoor@sap.com', status:'Paired',loc:'India',isDummy:true},
+  {name:'Meera Nair',   type:'early',      email:'meera.nair@sap.com',   status:'Paired',loc:'India',isDummy:true},
+  {name:'Kiran Patel',  type:'experienced',email:'kiran.patel@sap.com',  status:'Paired',loc:'India',isDummy:true},
+  {name:'Divya Reddy',  type:'early',      email:'divya.reddy@sap.com',  status:'Paired',loc:'India',isDummy:true},
+  {name:'Suresh Iyer',  type:'experienced',email:'suresh.iyer@sap.com',  status:'Paired',loc:'India',isDummy:true},
+  {name:'Pooja Verma',  type:'early',      email:'pooja.verma@sap.com',  status:'Paired',loc:'India',isDummy:true},
+];
+
+// Journey topics for dummy pairs (keyed by pair idx)
+const DUMMY_PAIR_TOPICS = {
+  100: [
+    {t:'AI productivity tools', done:true, notes:'Discussed ChatGPT, Copilot, Joule use cases', qs:[]},
+    {t:'Async vs formal communication', done:true, notes:'Explored Slack culture vs formal emails', qs:[]},
+    {t:'Gen Z approach to problem solving', done:true, notes:'Design thinking frameworks discussed', qs:[]},
+    {t:'Modern Learning Mindsets', done:false, notes:'', qs:[]},
+    {t:'Career planning without a fixed roadmap', done:true, notes:'Shared career pivot stories', qs:[]},
+    {t:'Building visibility at work', done:true, notes:'Tips on internal branding', qs:[]},
+    {t:'Strategic Thinking', done:false, notes:'', qs:[]},
+    {t:'Executive Communication', done:false, notes:'', qs:[]},
+  ],
+  101: [
+    {t:'Cross-generational communication styles', done:true, notes:'Identified key friction points', qs:[]},
+    {t:'Building trust in new teams', done:true, notes:'', qs:[]},
+    {t:'Feedback culture across generations', done:false, notes:'', qs:[]},
+  ],
+  102: [
+    {t:'Decision-making in ambiguity', done:true, notes:'Real project example walkthrough', qs:[]},
+    {t:'Strategic thinking for early career', done:true, notes:'Frameworks shared', qs:[]},
+    {t:'Product roadmap evolution', done:true, notes:'', qs:[]},
+    {t:'Leadership transition frameworks', done:true, notes:'IC to manager transition', qs:[]},
+    {t:'Stakeholder management', done:true, notes:'Influence without authority tactics', qs:[]},
+    {t:'Innovation and risk appetite', done:true, notes:'', qs:[]},
+  ]
+};
+
+/** Returns all pairs for admin (real + dummy), real-only for participant/guest. */
+function getAllPairs() {
+  return CURRENT_ROLE === 'admin' ? [...PAIRS, ...DUMMY_PAIRS] : PAIRS;
+}
+
+/** Returns all participants for admin (real + dummy), real-only for participant/guest. */
+function getAllParticipants() {
+  return CURRENT_ROLE === 'admin' ? [...PARTICIPANTS, ...DUMMY_PARTICIPANTS] : PARTICIPANTS;
+}
+
 const PAIR_TOPICS = [
   [ // 0: How Gen Z receives and processes feedback
     {t:"How Gen Z receives and processes feedback",done:false,notes:'',qs:["What\u2019s the best feedback you\u2019ve ever received, and why did it land?", "How do you create an environment where honest feedback flows both ways?", "What makes feedback feel safe vs threatening?"]},
@@ -1688,37 +1742,52 @@ const ANNOUNCEMENTS = [
 // =========================================================
 const EMAIL_TEMPLATES = [
   {
-    id:"sensitization",
-    title:"Sensitization Session",
-    icon:"fas fa-chalkboard-teacher",
+    id:"meet-your-match",
+    title:"Meet Your Match",
+    icon:"fas fa-handshake",
     color:"#0070F2",
     bg:"#E3F2FD",
-    desc:"Invite all 30 participants to the programme orientation and awareness session.",
-    defaultGroup:"all",
-    subject:"Invitation: SAP Cross-Generational Mentoring — Sensitization Session",
+    desc:"Introduce matched pairs to each other and share their personalised curriculum over email.",
+    defaultGroup:"approved",
+    subject:"SAP Cross-Generational Mentoring — Meet Your Match!",
     body:`Dear [Name],
 
-We are delighted to invite you to the SAP India Cross-Generational Mentoring Programme — Sensitization Session.
+We are excited to introduce you to your Cross-Generational Mentoring partner!
 
-\uD83D\uDCC5 Date & Time: [DATE & TIME]
-\uD83D\uDCCD Format: Virtual via Microsoft Teams
-\uD83D\uDD17 Join Link: [TEAMS LINK]
+\uD83E\uDD1D Your Mentoring Partner: [PARTNER NAME]
+\uD83D\uDCBC Role: [PARTNER ROLE]
+\uD83C\uDF10 Location: SAP India
 
-This session will cover:
-  \u2022 Programme overview, objectives, and your role
-  \u2022 How Reverse and Traditional Mentoring works
-  \u2022 Your AI-generated pair matching process and timeline
-  \u2022 Leaderboard, scoring, and recognition at Pilot Closure
-  \u2022 Open Q&A with the programme team
+Your personalised curriculum has been generated based on both your pre-programme interview responses. Here is what your mentoring journey will cover:
 
-Please RSVP by accepting the calendar invite or replying to this email.
+\u2014\u2014 REVERSE MENTORING (Early Talent facilitates) \u2014\u2014
+  1. [REV TOPIC 1]
+  2. [REV TOPIC 2]
+  3. [REV TOPIC 3]
+  4. [REV TOPIC 4]
 
-We look forward to seeing you there!
+\u2014\u2014 TRADITIONAL MENTORING (Experienced facilitates) \u2014\u2014
+  1. [TRAD TOPIC 1]
+  2. [TRAD TOPIC 2]
+  3. [TRAD TOPIC 3]
+  4. [TRAD TOPIC 4]
+
+\uD83D\uDCC5 Programme Duration: 3 months (July \u2013 September 2026)
+\uD83C\uDFAF Goal: Complete all 8 sessions and climb the leaderboard!
+
+Next Steps:
+  1. Introduce yourself to your partner via Teams or email.
+  2. Schedule your first session within 2 weeks (45\u201360 min recommended).
+  3. Log in to the Mentoring Portal to see full curriculum details and track progress.
+
+Access the portal: [PORTAL LINK]
+
+We wish you a fulfilling mentoring journey ahead!
 
 Warm regards,
 Manimoy Biswas | Programme Lead
 Priyanga Balamurugan | Co-Lead
-SAP India — Cross-Generational Mentoring`
+SAP India \u2014 Cross-Generational Mentoring`
   },
   {
     id:"kickoff",
@@ -1865,7 +1934,7 @@ const FAQS = [
   {q:"When does the pilot start and how long does it run?",a:"The pilot is currently in the pre-launch phase. All 15 pairs are pending admin approval. Once approved, the programme runs for 3 months. Kick-off communications will be sent by the programme team upon approval. Watch this space for updates."},
   {q:"Can we request a change of pair?",a:"Pair changes are possible within the first 2 weeks after the pilot launches. Submit your request with a reason to the programme team (Manimoy Biswas — Lead, Priyanga Balamurugan — Co-Lead). After week 2, changes require VP-level approval."},
   {q:"How is recognition awarded?",a:"The top 3 pairs at Pilot Closure receive public recognition at the SAP India event, personalised certificates, gifts, and a feature in the company success story series. Points reset monthly, so sustained effort throughout the programme is rewarded."},
-  {q:"Who do I contact for programme support?",a:"Programme team: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). For design or curriculum questions: Rishabh Tripathi (Bridge Forum Lead) or Shweta Mohanty (HR Head)."},
+  {q:"Who do I contact for programme support?",a:"For any questions or support, reach out to IndiaHR@sap.com."},
 ];
 
 const REVERSE_TOPICS = [
@@ -1899,6 +1968,31 @@ const PAIR_JOURNEY = [
   {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 13 Akshay Sureshchand & Shubh Srivastava
   {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 14 Priyanka Singh & Ansh
 ];
+
+// ── Initialize PAIR_JOURNEY entries for dummy pairs (sync checkboxes with DUMMY_PAIR_TOPICS) ──
+DUMMY_PAIRS.forEach(dp => {
+  const topics = DUMMY_PAIR_TOPICS[dp.idx] || [];
+  const revDone = [false, false, false, false];
+  const tradDone = [false, false, false, false];
+  const revArr = dp.revTopics || [];
+  const tradArr = dp.tradTopics || [];
+  topics.forEach(topic => {
+    if (!topic.done) return;
+    const ri = revArr.indexOf(topic.t);
+    if (ri >= 0 && ri < 4) { revDone[ri] = true; return; }
+    const ti = tradArr.indexOf(topic.t);
+    if (ti >= 0 && ti < 4) { tradDone[ti] = true; }
+  });
+  const doneCount = topics.filter(t => t.done).length;
+  PAIR_JOURNEY[dp.idx] = {
+    sessions: dp.testSessions || 0,
+    topics: doneCount,
+    resources: 0,
+    engagement: Math.round((doneCount / (topics.length || 1)) * 100) + "%",
+    revDone,
+    tradDone
+  };
+});
 
 function computeAIInsights() {
   const total = PAIRS.length;
@@ -2113,17 +2207,26 @@ function renderParticipants(data) {
 function filterP() {
   const tf = document.getElementById("tf") ? document.getElementById("tf").value : "all";
   const nf = document.getElementById("nf") ? document.getElementById("nf").value.toLowerCase() : "";
-  const filtered = PARTICIPANTS.filter(p =>
+  const filtered = getAllParticipants().filter(p =>
     (tf === "all" || p.type === tf) &&
     (nf === "" || p.name.toLowerCase().includes(nf))
   );
   renderParticipants(filtered);
 }
 
+function _updateUploadStatus(count) {
+  const el = document.getElementById('upload-status');
+  if (!el) return;
+  el.style.display = 'block';
+  const txt = document.getElementById('upload-status-text');
+  if (txt) txt.innerHTML = '<i class="fas fa-check-circle"></i> ' + count + ' participant' + (count !== 1 ? 's' : '') + ' loaded';
+}
+
 function simulateUpload() {
-  document.getElementById("upload-status").style.display = "block";
-  renderParticipants(PARTICIPANTS);
-  showToast("30 participants loaded successfully!");
+  const allP = getAllParticipants();
+  renderParticipants(allP);
+  _updateUploadStatus(allP.length);
+  showToast(allP.length + ' participants loaded successfully!');
 }
 
 function handleDrop(e) {
@@ -2138,25 +2241,30 @@ function handleFileUpload(inp) {
 function renderPairs() {
   const grid = document.getElementById("pairs-grid");
   if (!grid) return;
-  const pairsToShow = CURRENT_ROLE === "participant" ? PAIRS.filter(p => p.idx === MY_PAIR_IDX) : PAIRS;
+  const pairsToShow = CURRENT_ROLE === "participant" ? PAIRS.filter(p => p.idx === MY_PAIR_IDX) : getAllPairs();
   grid.innerHTML = pairsToShow.map(p => {
     const approved = p.status === "Approved";
     const sc = scoreColor(p.score);
     const isMyPair = CURRENT_ROLE === "participant" && p.idx === MY_PAIR_IDX;
+    const isDummyPair = !!p.isDummy;
 
     // ── Participant view: show full pair card (score visible even while pending) ──
 
     // ── Status badge ───────────────────────────────────────────────────────
-    const statusBadge = approved
+    const statusBadge = isDummyPair
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#EDE7FF;color:#5C35CC;border:1px solid #C5B8FA"><i class="fas fa-flask" style="font-size:9px"></i>Test Data</span>`
+      : approved
       ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7"><i class="fas fa-check-circle" style="font-size:9px"></i>Approved</span>`
       : `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80"><i class="fas fa-hourglass-half" style="font-size:9px"></i>Pending</span>`;
 
     // ── Admin action buttons ───────────────────────────────────────────────
-    const adminBtns = CURRENT_ROLE === "admin" ? `
-        <button class="btn bg2 sm" style="font-size:11px;padding:5px 9px" onclick="repairPair(${p.idx})" title="Shuffle this pair based on topic alignment"><i class="fas fa-random"></i> Re-pair</button>
+    const adminBtns = CURRENT_ROLE === "admin" ? (isDummyPair
+      ? `<button class="btn bg2 sm" style="font-size:11px;padding:5px 9px" onclick="openAssignTopicsModal(${p.idx})" title="Assign discussion topics"><i class="fas fa-tag"></i> Topics</button>
+         <button class="btn sm" style="font-size:11px;padding:5px 9px;background:#BB0000;color:#fff" onclick="deleteDummyPair(${p.idx})" title="Remove this test pair"><i class="fas fa-trash"></i> Delete</button>`
+      : `<button class="btn bg2 sm" style="font-size:11px;padding:5px 9px" onclick="repairPair(${p.idx})" title="Shuffle this pair based on topic alignment"><i class="fas fa-random"></i> Re-pair</button>
         <button class="btn sm" style="flex:1;font-size:11px;background:${approved ? "#BB0000" : "#107E3E"};color:#fff" onclick="toggleApprovePair(${p.idx})">
           <i class="fas fa-${approved ? "times-circle" : "check"}"></i> ${approved ? "Unapprove" : "Approve"}
-        </button>` : ``;
+        </button>`) : ``;
 
     return `<div class="card${isMyPair ? " my-pair-card" : ""}" style="padding:0;overflow:hidden;">
       <!-- Gradient header -->
@@ -2186,9 +2294,9 @@ function renderPairs() {
       <div style="padding:12px 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
           ${statusBadge}
-          <span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>${p.topics.split(",").length} topics</span>
+          <span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>${(p.topics||'').split(",").filter(Boolean).length} topics</span>
         </div>
-        <p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.topics}">${p.topics.split(",").slice(0,2).map(t=>t.trim()).join(" &middot; ")}</p>
+        <p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.topics||''}">${(p.topics||'').split(",").slice(0,2).map(t=>t.trim()).filter(Boolean).join(" &middot; ") || '<em>No topics assigned</em>'}</p>
         <div style="display:flex;gap:6px;align-items:center">
           <button class="btn bg2 sm" style="flex:1;font-size:11px" onclick="showPairDetail(${p.idx})"><i class="fas fa-eye"></i> Details</button>
           ${adminBtns}
@@ -2200,7 +2308,8 @@ function renderPairs() {
 }
 
 function showPairDetail(idx) {
-  const p = PAIRS[idx];
+  const p = PAIRS[idx] || DUMMY_PAIRS.find(d => d.idx === idx);
+  if (!p) return;
   document.getElementById("pmod-title").textContent = `${p.m1} & ${p.m2} — Pair Details`;
   const statusBadge = p.status === "Approved"
     ? `<span class="bdg bgn">Approved</span>`
@@ -2554,7 +2663,7 @@ function toTopicTitle(s) {
 }
 
 function generatePairCurriculum(pairIdx) {
-  const p = PAIRS[pairIdx];
+  const p = PAIRS[pairIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === pairIdx));
   if (!p) return {rev:[], trad:[]};
   const weeks = ["Week 1-2","Week 3-4","Week 5-6","Week 7-8"];
 
@@ -2665,7 +2774,7 @@ function renderCurriculum(tabIdx) {
   if (!el) return;
   if (!topics || !topics.length) { el.innerHTML = '<p style="font-size:12px;color:var(--ts);padding:12px">Generating curriculum...</p>'; return; }
   // Use currently selected pair in Journey Tracker
-  const pair = PAIRS[currentJourneyIdx] || PAIRS[0];
+  const pair = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
   const pj   = PAIR_JOURNEY[currentJourneyIdx] || PAIR_JOURNEY[0];
   const doneArr = tabIdx === 1 ? pj.revDone : pj.tradDone;
   el.innerHTML = topics.map((t, i) => {
@@ -2741,7 +2850,7 @@ function confirmTopicDate() {
   const topics = tabIdx === 1 ? currentPairCurriculum.rev : currentPairCurriculum.trad;
   const topicTitle = (topics[itemIdx] ? topics[itemIdx].title : "Session").replace(/&amp;/g, "&");
   const sesType = tabIdx === 1 ? "Reverse" : "Traditional";
-  const p = PAIRS[currentJourneyIdx] || PAIRS[0];
+  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
   const dateFormatted = new Date(dateVal + "T00:00:00").toLocaleDateString("en-GB", {day:"2-digit",month:"short",year:"numeric"});
   const noteVal = (document.getElementById("tmod-note").value || "").trim();
   const pairSessions = SESSIONS.filter(s => s.pairIdx === currentJourneyIdx);
@@ -2769,9 +2878,12 @@ function confirmTopicDate() {
 }
 
 function updateJourneyKPIs() {
-  const pj = PAIR_JOURNEY[currentJourneyIdx] || PAIR_JOURNEY[0];
-  const doneSessions = SESSIONS.filter(s => s.pairIdx === currentJourneyIdx).length;
-  const doneTopics   = pj.revDone.filter(Boolean).length + pj.tradDone.filter(Boolean).length;
+  const pj = PAIR_JOURNEY[currentJourneyIdx] || { revDone:[], tradDone:[] };
+  const _dp = typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx);
+  const loggedSessions = SESSIONS.filter(s => s.pairIdx === currentJourneyIdx).length;
+  const doneSessions = loggedSessions + (_dp ? (_dp.testSessions || 0) : 0);
+  // Topics done: for dummy pairs, PAIR_JOURNEY[idx] is already synced with DUMMY_PAIR_TOPICS
+  const doneTopics = (pj.revDone || []).filter(Boolean).length + (pj.tradDone || []).filter(Boolean).length;
   const jsEl = document.getElementById("js");
   const jtEl = document.getElementById("jt");
   const jrEl = document.getElementById("jr");
@@ -2779,12 +2891,22 @@ function updateJourneyKPIs() {
   if (jsEl) jsEl.textContent = doneSessions;
   if (jtEl) jtEl.textContent = doneTopics;
   const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 8);
+  // For dummy pairs, show assigned topic count (same as engagement denominator) for consistency
+  let displayTotal = totalTopics;
+  if (_dp && typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[currentJourneyIdx] && DUMMY_PAIR_TOPICS[currentJourneyIdx].length > 0) {
+    displayTotal = DUMMY_PAIR_TOPICS[currentJourneyIdx].length;
+  }
   const jtSubEl = document.getElementById("jt-sub");
-  if (jtSubEl) jtSubEl.textContent = "of " + totalTopics + " topics";
+  if (jtSubEl) jtSubEl.textContent = "of " + displayTotal + " topics";
   if (jrEl) jrEl.textContent = (PAIR_RESOURCES[currentJourneyIdx] || []).length;
-  // Engagement = total score earned out of 100 possible pts (meetings 40 + session 35 + refl 25)
-  const sc = getPairScore(currentJourneyIdx);
-  if (jeEl) jeEl.textContent = Math.min(sc.meetings + sc.session + sc.refl, 100) + "%";
+  // Engagement = topics completed / total assigned topics (100% when all done)
+  // For dummy pairs: totalPlanned = DUMMY_PAIR_TOPICS length (actual assigned curriculum)
+  let totalPlanned = totalTopics || 1;
+  if (_dp && typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[currentJourneyIdx]) {
+    totalPlanned = DUMMY_PAIR_TOPICS[currentJourneyIdx].length || totalPlanned;
+  }
+  const engagementPct = Math.min(Math.round((doneTopics / totalPlanned) * 100), 100);
+  if (jeEl) jeEl.textContent = engagementPct + "%";
 }
 
 function switchCurr(t) {
@@ -2823,7 +2945,7 @@ function populateSessionTopicSelect() {
   if (sd) sd.value = new Date().toISOString().split("T")[0];
 
   // Show pair name in modal header
-  const p = PAIRS[currentJourneyIdx] || PAIRS[MY_PAIR_IDX];
+  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[MY_PAIR_IDX];
   const modalTitle = document.querySelector('#smod h3');
   if (modalTitle && p) modalTitle.textContent = 'Log Session — ' + p.m1 + ' & ' + p.m2;
 
@@ -2874,12 +2996,22 @@ function loadJourney(idx) {
   // Populate pair-sel dropdown dynamically if empty
   const pSel = document.getElementById('pair-sel');
   if (pSel) {
-    if (pSel.options.length === 0) {
+    if (pSel.options.length === 0 || pSel._lastRole !== CURRENT_ROLE) {
+      pSel.innerHTML = '';
       PAIRS.forEach((p, i) => {
         const opt = document.createElement('option');
-        opt.value = i; opt.textContent = p.m1 + ' & ' + p.m2;
+        opt.value = p.idx; opt.textContent = p.m1 + ' & ' + p.m2;
         pSel.appendChild(opt);
       });
+      // Admin sees dummy pairs in dropdown too
+      if (CURRENT_ROLE === 'admin' && typeof DUMMY_PAIRS !== 'undefined') {
+        DUMMY_PAIRS.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.idx; opt.textContent = '\u2694\ufe0f ' + p.m1 + ' & ' + p.m2 + ' (Test)';
+          pSel.appendChild(opt);
+        });
+      }
+      pSel._lastRole = CURRENT_ROLE;
     }
     pSel.value = String(currentJourneyIdx);
   }
@@ -2887,7 +3019,7 @@ function loadJourney(idx) {
   // Participant pair pill
   const pill = document.getElementById('participant-pair-pill');
   if (pill) {
-    const p = PAIRS[currentJourneyIdx];
+    const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx));
     if (p) {
       pill.innerHTML =
         '<div class="av" style="background:'+p.c1+';width:22px;height:22px;font-size:8px">'+p.i1+'</div>' +
@@ -2898,7 +3030,7 @@ function loadJourney(idx) {
   }
 
   // Pair role banner
-  const p = PAIRS[currentJourneyIdx] || PAIRS[0];
+  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
   const rd = document.getElementById("pair-role-detail");
   if (rd && p) {
     rd.innerHTML =
@@ -2936,7 +3068,7 @@ function toggleCurrLabel(uid) {
 function updateCurrPairLabel() {
   const el = document.getElementById('curr-pair-label');
   if (!el) return;
-  const p = PAIRS[currentJourneyIdx];
+  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx));
   if (!p) return;
   const uid = 'pair' + currentJourneyIdx;
   const revSrc  = (p.earlyImpart || p.expLearn  || '').replace(/\.\.\.$/,'').trim();
@@ -3080,11 +3212,30 @@ function renderCompChart() {
   const el = document.getElementById("comp-chart");
   if (!el) return;
   if (el._chart) el._chart.destroy();
+  // Calculate real completion for current pair
+  const pj = PAIR_JOURNEY[currentJourneyIdx] || { revDone:[], tradDone:[] };
+  const _dp = typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx);
+  const doneTopics = (pj.revDone || []).filter(Boolean).length + (pj.tradDone || []).filter(Boolean).length;
+  const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 8);
+  let totalPlanned = totalTopics || 1;
+  if (_dp && typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[currentJourneyIdx] && DUMMY_PAIR_TOPICS[currentJourneyIdx].length > 0) {
+    totalPlanned = DUMMY_PAIR_TOPICS[currentJourneyIdx].length;
+  }
+  const pct = Math.min(Math.round((doneTopics / totalPlanned) * 100), 100);
+  const remaining = 100 - pct;
   el._chart = new Chart(el, {
     type:"doughnut",
-    data:{labels:["Complete","Remaining"],datasets:[{data:[0,100],backgroundColor:["#0070F2","rgba(0,112,242,.1)"],borderWidth:0}]},
+    data:{labels:["Complete","Remaining"],datasets:[{data:[pct, remaining],backgroundColor:["#0070F2","rgba(0,112,242,.1)"],borderWidth:0}]},
     options:{responsive:true,cutout:"72%",plugins:{legend:{display:false}}}
   });
+  // Update text below chart
+  const chartParent = el.closest('.card');
+  if (chartParent) {
+    const pctEl = chartParent.querySelector('p[style*="font-size:22px"]');
+    const subEl = chartParent.querySelector('p[style*="font-size:11px"]');
+    if (pctEl) pctEl.textContent = pct + "%";
+    if (subEl) subEl.textContent = (PILOT_STARTED || _dp) ? "Curriculum completion" : "Program progress (pilot not started)";
+  }
 }
 
 // =========================================================
@@ -3093,6 +3244,24 @@ function renderCompChart() {
 
 // Compute live session-based scores for a pair from SESSIONS + PAIR_JOURNEY
 function getPairScore(pairIdx) {
+  // Dummy pairs: score proportional to completion of assigned topics
+  // Completing all assigned sessions = 100 pts (40 meeting + 35 session + 25 reflection)
+  const dp = DUMMY_PAIRS.find(p => p.idx === pairIdx);
+  if (dp) {
+    const ps = SESSIONS.filter(s => s.pairIdx === pairIdx);
+    const baseline = dp.testSessions || 0;
+    const totalSess = ps.length + baseline;
+    const assignedTopics = (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[pairIdx])
+      ? DUMMY_PAIR_TOPICS[pairIdx].length : 0;
+    if (assignedTopics === 0) return { meetings: 0, session: 0, refl: 0 };
+    const completionRatio = Math.min(totalSess / assignedTopics, 1);
+    const meetings = Math.round(completionRatio * 40);
+    const session  = Math.round(completionRatio * 35);
+    const reflReal = ps.filter(s => (s.summary||'').length > 40).length;
+    const reflRatio = Math.min((reflReal + Math.min(baseline, assignedTopics)) / assignedTopics, 1);
+    const refl     = Math.round(reflRatio * 25);
+    return { meetings, session, refl };
+  }
   const ps      = SESSIONS.filter(s => s.pairIdx === pairIdx);
   const pj      = PAIR_JOURNEY[pairIdx] || { revDone:[], tradDone:[] };
   const topics  = (pj.revDone||[]).filter(Boolean).length + (pj.tradDone||[]).filter(Boolean).length;
@@ -3120,14 +3289,20 @@ function renderLeaderboard() {
     else preLaunch.style.removeProperty('display');
   }
 
-  // Pre-pilot: sort approved pairs first by match score, then pending by match score.
-  // Live pilot: sort by total session score descending.
-  const sorted = PILOT_STARTED
-    ? [...PAIRS].sort((a,b) => {
-        const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
-        return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
+  // Sort logic:
+  // - Admin view: always sort by total leaderboard score descending (dummy pairs have real scores).
+  //   Ties broken by match score. Pairs with 0 pts sorted by approval then match score.
+  // - Participant view pre-pilot: approved first, then by match score.
+  // - Participant view live pilot: by total score.
+  const _allPairs = getAllPairs();
+  const _getTotal = (p) => { const s = getPairScore(p.idx); return s.meetings + s.session + s.refl; };
+  const sorted = (PILOT_STARTED || CURRENT_ROLE === 'admin')
+    ? [..._allPairs].sort((a,b) => {
+        const ta = _getTotal(a), tb = _getTotal(b);
+        if (tb !== ta) return tb - ta;
+        return b.score - a.score;
       })
-    : [...PAIRS].sort((a,b) => {
+    : [..._allPairs].sort((a,b) => {
         if (a.status === "Approved" && b.status !== "Approved") return -1;
         if (b.status === "Approved" && a.status !== "Approved") return  1;
         return b.score - a.score;
@@ -3136,17 +3311,21 @@ function renderLeaderboard() {
   const medals = ["&#129351;","&#129354;","&#129353;"];
   tbody.innerHTML = sorted.map((p, i) => {
     const isApproved = p.status === "Approved";
-    // Scores: real values only once pilot starts; pre-pilot shows dashes
-    const {meetings: mPts, session: sPts, refl: rPts} = PILOT_STARTED ? getPairScore(p.idx) : {meetings:0, session:0, refl:0};
+    const isDummyRow = !!p.isDummy;
+    // Dummy pairs always show scores (test data); real pairs wait for PILOT_STARTED
+    const _showScores = PILOT_STARTED || isDummyRow;
+    const {meetings: mPts, session: sPts, refl: rPts} = _showScores ? getPairScore(p.idx) : {meetings:0, session:0, refl:0};
     const total = mPts + sPts + rPts;
 
     const statusPill = !PILOT_STARTED
-      ? (isApproved
+      ? (isDummyRow
+          ? ''
+          : isApproved
           ? ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7;vertical-align:middle"><i class="fas fa-check-circle"></i>Approved</span>'
           : ' &nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:9px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80;vertical-align:middle"><i class="fas fa-hourglass-half"></i>Pending</span>')
       : "";
 
-    const trend = PILOT_STARTED
+    const trend = _showScores
       ? (i < 3 ? '<i class="fas fa-arrow-up" style="color:#107E3E"></i>'
                : i < 7 ? '<i class="fas fa-minus" style="color:#E8A000"></i>'
                         : '<i class="fas fa-arrow-down" style="color:#BB0000"></i>')
@@ -3154,21 +3333,22 @@ function renderLeaderboard() {
           ? '<span style="font-size:10px;color:#107E3E;font-weight:700">Ready</span>'
           : '<span style="font-size:10px;color:#E8A000;font-weight:700">Pending</span>');
 
-    const scoreCell = (pts, col) => PILOT_STARTED
+    const scoreCell = (pts, col) => _showScores
       ? `<span style="font-weight:700;color:${col}">${pts}</span>`
-      : `<span style="color:var(--ts);font-size:12px">—</span>`;
+      : `<span style="color:var(--ts);font-size:12px">&mdash;</span>`;
 
     const isMyPair = p.idx === MY_PAIR_IDX;
-    const rowBg    = i === 0 ? "rgba(255,215,0,.08)" : i === 1 ? "rgba(184,184,184,.07)" : i === 2 ? "rgba(205,127,50,.07)" : isMyPair ? "rgba(0,112,242,.05)" : "";
+    const rowBg    = i === 0 ? "rgba(255,215,0,.08)" : i === 1 ? "rgba(184,184,184,.07)" : i === 2 ? "rgba(205,127,50,.07)" : isMyPair ? "rgba(0,112,242,.05)" : isDummyRow ? "rgba(108,99,255,.06)" : "";
     const youTag   = isMyPair ? '&nbsp;<span class="bdg bbl lb-you-tag" style="font-size:10px;vertical-align:middle">You</span>' : "";
+    const testTag  = isDummyRow ? '&nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;background:#EDE7FF;color:#5C35CC;border:1px solid #C5B8FA;vertical-align:middle"><i class="fas fa-flask"></i> Test</span>' : "";
     const rowStyle = isMyPair ? `background:${rowBg};outline:2px solid var(--ac);outline-offset:-2px` : `background:${rowBg}`;
-    const rowOpacity = (!PILOT_STARTED && !isApproved) ? "opacity:.55;" : "";
+    const rowOpacity = (!PILOT_STARTED && !isApproved && !isDummyRow) ? "opacity:.55;" : "";
 
     return `<tr style="${rowStyle}${rowOpacity}"><td><span style="font-size:16px">${medals[i]||"#"+(i+1)}</span></td>
-    <td><div style="display:flex;align-items:center;gap:8px"><div style="display:flex"><div class="av" style="background:${p.c1};width:24px;height:24px;font-size:9px;z-index:2">${p.i1}</div><div class="av" style="background:${p.c2};width:24px;height:24px;font-size:9px;margin-left:-6px">${p.i2}</div></div><span style="font-weight:600;font-size:12.5px">${p.m1} &amp; ${p.m2}${youTag}${statusPill}</span></div></td>
+    <td><div style="display:flex;align-items:center;gap:8px"><div style="display:flex"><div class="av" style="background:${p.c1};width:24px;height:24px;font-size:9px;z-index:2">${p.i1}</div><div class="av" style="background:${p.c2};width:24px;height:24px;font-size:9px;margin-left:-6px">${p.i2}</div></div><span style="font-weight:600;font-size:12.5px">${p.m1} &amp; ${p.m2}${youTag}${testTag}${statusPill}</span></div></td>
     <td>${scoreCell(mPts,"#0070F2")}</td><td>${scoreCell(sPts,"#107E3E")}</td><td>${scoreCell(rPts,"#E8A000")}</td>
-    <td><span style="font-size:15px;font-weight:900;color:${PILOT_STARTED?scoreColor(total):"#A0A0A0"}">${PILOT_STARTED?total:"—"}</span></td>
-    <td>${trend}</td><td>${PILOT_STARTED?p.badge:""}</td></tr>`;
+    <td><span style="font-size:15px;font-weight:900;color:${_showScores?scoreColor(total):"#A0A0A0"}">${_showScores?total:"&mdash;"}</span></td>
+    <td>${trend}</td><td>${_showScores ? (i === 0 ? '&#127942;' : i === 1 ? '&#11088;' : i === 2 ? '&#128293;' : total >= 60 ? '&#127775;' : '') : ""}</td></tr>`;
   }).join("");
   // Update rank banner for participant
   if (CURRENT_ROLE === "participant") {
@@ -3203,7 +3383,7 @@ function renderLBChart() {
   const el = document.getElementById("lb-chart");
   if (!el) return;
   if (el._chart) el._chart.destroy();
-  const top6 = [...PAIRS].sort((a,b)=>{const sa=getPairScore(a.idx),sb=getPairScore(b.idx);return (sb.meetings+sb.session+sb.refl)-(sa.meetings+sa.session+sa.refl);}).slice(0,6);
+  const top6 = getAllPairs().sort((a,b)=>{const sa=getPairScore(a.idx),sb=getPairScore(b.idx);return (sb.meetings+sb.session+sb.refl)-(sa.meetings+sa.session+sa.refl);}).slice(0,6);
   el._chart = new Chart(el, {
     type:"bar",
     data:{labels:top6.map(p=>p.m1.split(" ")[0]),datasets:[
@@ -3220,12 +3400,10 @@ function renderLBChart() {
 function renderLBPodium() {
   const container = document.getElementById("lb-podium-container");
   if (!container) return;
-  const sorted = PILOT_STARTED
-    ? [...PAIRS].sort((a,b) => {
-        const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
-        return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
-      })
-    : [...PAIRS].sort((a,b) => {
+  const _pGetTotal = (p) => { const s = getPairScore(p.idx); return s.meetings + s.session + s.refl; };
+  const sorted = (PILOT_STARTED || CURRENT_ROLE === 'admin')
+    ? getAllPairs().sort((a,b) => { const ta = _pGetTotal(a), tb = _pGetTotal(b); return tb !== ta ? tb - ta : b.score - a.score; })
+    : getAllPairs().sort((a,b) => {
         if (a.status === "Approved" && b.status !== "Approved") return -1;
         if (b.status === "Approved" && a.status !== "Approved") return  1;
         return b.score - a.score;
@@ -3239,7 +3417,7 @@ function renderLBPodium() {
   const pdClasses   = ["pd2","pd1","pd3"];
 
   function getScore(p) {
-    if (PILOT_STARTED) { const s = getPairScore(p.idx); return (s.meetings+s.session+s.refl) + " pts"; }
+    if (PILOT_STARTED || p.isDummy) { const s = getPairScore(p.idx); return (s.meetings+s.session+s.refl) + " pts"; }
     return p.score + "% match";
   }
 
@@ -3255,8 +3433,9 @@ function renderLBPodium() {
 function renderHighlightCards() {
   const container = document.getElementById("lb-highlight-cards");
   if (!container) return;
-  const byTotal = [...PAIRS].sort((a,b) => {
-    if (PILOT_STARTED) {
+  const _useScores = PILOT_STARTED || CURRENT_ROLE === 'admin';
+  const byTotal = getAllPairs().sort((a,b) => {
+    if (_useScores) {
       const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
       return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
     }
@@ -3264,19 +3443,19 @@ function renderHighlightCards() {
   });
   function pairName(p) { return p.m1.split(" ")[0] + " &amp; " + p.m2.split(" ")[0]; }
   function pairPts(p)  {
-    if (PILOT_STARTED) { const s = getPairScore(p.idx); return "Score: " + (s.meetings+s.session+s.refl) + " pts"; }
+    if (_useScores) { const s = getPairScore(p.idx); return "Score: " + (s.meetings+s.session+s.refl) + " pts"; }
     return "Match: " + p.score + "%";
   }
   function resPts(p) {
-    if (PILOT_STARTED) { return (PAIR_RESOURCES[p.idx]||[]).length + " file(s) uploaded"; }
+    if (_useScores) { return (PAIR_RESOURCES[p.idx]||[]).length + " file(s) uploaded"; }
     return "Match: " + p.score + "%";
   }
   // Most Active  — highest meeting points (pre-pilot: #1 overall)
-  const mostActive      = PILOT_STARTED ? [...PAIRS].sort((a,b) => getPairScore(b.idx).meetings - getPairScore(a.idx).meetings)[0] : byTotal[0];
+  const mostActive      = _useScores ? getAllPairs().sort((a,b) => getPairScore(b.idx).meetings - getPairScore(a.idx).meetings)[0] : byTotal[0];
   // Best Reflection — highest reflection points (pre-pilot: #2 overall)
-  const bestRefl        = PILOT_STARTED ? [...PAIRS].sort((a,b) => getPairScore(b.idx).refl    - getPairScore(a.idx).refl   )[0] : (byTotal[1]||byTotal[0]);
+  const bestRefl        = _useScores ? getAllPairs().sort((a,b) => getPairScore(b.idx).refl    - getPairScore(a.idx).refl   )[0] : (byTotal[1]||byTotal[0]);
   // Most Resources  — highest actual uploaded resource count (pre-pilot: #3 overall by match score)
-  const mostResources   = PILOT_STARTED ? [...PAIRS].sort((a,b) => (PAIR_RESOURCES[b.idx]||[]).length - (PAIR_RESOURCES[a.idx]||[]).length)[0] : (byTotal[2]||byTotal[0]);
+  const mostResources   = _useScores ? getAllPairs().sort((a,b) => (PAIR_RESOURCES[b.idx]||[]).length - (PAIR_RESOURCES[a.idx]||[]).length)[0] : (byTotal[2]||byTotal[0]);
   // Fastest Progress — 4th overall by total score
   const fastestProgress = byTotal[3] || byTotal[0];
   const cards = [
@@ -3640,9 +3819,11 @@ function renderInsightCharts() {
   (function() {
     const totalTopicsPerPair = 8;
     let totalTopicsDone = 0;
-    PAIR_JOURNEY.forEach(pj => {
-      totalTopicsDone += (pj.revDone||[]).filter(Boolean).length + (pj.tradDone||[]).filter(Boolean).length;
-    });
+    // Only count real pairs (indices 0..PAIRS.length-1), not dummy pair entries at idx 100+
+    for (let i = 0; i < PAIRS.length; i++) {
+      const pj = PAIR_JOURNEY[i];
+      if (pj) totalTopicsDone += (pj.revDone||[]).filter(Boolean).length + (pj.tradDone||[]).filter(Boolean).length;
+    }
     const totalPossible   = PAIRS.length * totalTopicsPerPair;
     const completionPct   = totalPossible ? Math.round(totalTopicsDone / totalPossible * 100) : 0;
     const avgSessions     = SESSIONS.length ? (SESSIONS.length / PAIRS.length).toFixed(1) : "0";
@@ -3682,7 +3863,7 @@ function renderInsightCharts() {
 function openScheduleModal() {
   const pairSel = document.getElementById("pair-sel");
   const idx = pairSel ? parseInt(pairSel.value) : MY_PAIR_IDX;
-  const p = PAIRS[idx] || PAIRS[MY_PAIR_IDX];
+  const p = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
   // Pre-fill pair info
   const pairNames = document.getElementById("sch-pair-names");
   if (pairNames) pairNames.innerHTML =
@@ -3697,7 +3878,7 @@ function openScheduleModal() {
 function openOutlookCalendar() {
   const pairSel = document.getElementById("pair-sel");
   const idx = pairSel ? parseInt(pairSel.value) : MY_PAIR_IDX;
-  const p = PAIRS[idx] || PAIRS[MY_PAIR_IDX];
+  const p = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
 
   const dateVal  = document.getElementById("sch-date").value;
   const timeVal  = document.getElementById("sch-time").value || "10:00";
@@ -3958,7 +4139,9 @@ function _bootPortal(session) {
   if (session.role === 'admin') document.body.classList.add('is-admin-session');
   setRole(session.role);
   // Page 1
-  renderParticipants(PARTICIPANTS);
+  const _allP = getAllParticipants();
+  renderParticipants(_allP);
+  _updateUploadStatus(_allP.length);
   renderPairs();
   renderStatusChart();
   updatePairKPIs();
@@ -4525,6 +4708,421 @@ function updateP5NPSStats() {
   }
 })();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// v74 EXPORT UTILITIES — real CSV/PDF downloads
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _downloadCSV(filename, headers, rows) {
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const csv = [headers, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast(filename + ' downloaded');
+}
+
+function exportParticipantsCSV() {
+  const hdrs = ['Name','Email','Type','Location','Paired With','Status'];
+  const rows = PARTICIPANTS.map(p => {
+    const pair = PAIRS.find(pr => pr.email1 === p.email || pr.email2 === p.email);
+    const partner = pair ? (pair.email1 === p.email ? pair.m2 : pair.m1) : '';
+    return [p.name, p.email, p.type === 'early' ? 'Early Talent' : 'Experienced', p.loc || 'India', partner, p.status || 'Pending'];
+  });
+  _downloadCSV('CGM_Participants_India2026.csv', hdrs, rows);
+}
+
+function exportPairsCSV() {
+  const hdrs = ['#','Mentor (Experienced)','Mentor Email','Mentee (Early Talent)','Mentee Email','Match Score','Categories','Status'];
+  const rows = PAIRS.map((p, i) => [
+    i + 1, p.m1, p.email1, p.m2, p.email2,
+    p.score + '%', (p.cats || []).join('; '), p.status || 'Pending'
+  ]);
+  _downloadCSV('CGM_Pairs_India2026.csv', hdrs, rows);
+}
+
+function exportInsightsCSV() {
+  const hdrs = ['Rank','Pair','Leaderboard Score','Match Score','Sessions Logged','Top Categories','Status'];
+  const allP = getAllPairs();
+  const sorted = [...allP].sort((a, b) => {
+    const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
+    const ta = sa.meetings + sa.session + sa.refl, tb = sb.meetings + sb.session + sb.refl;
+    return tb !== ta ? tb - ta : b.score - a.score;
+  });
+  const rows = sorted.map((p, i) => {
+    const sc = getPairScore(p.idx);
+    const total = sc.meetings + sc.session + sc.refl;
+    const sessCount = SESSIONS.filter(s => s.pairIdx === p.idx).length + (p.isDummy ? (p.testSessions||0) : 0);
+    return [i + 1, p.m1 + ' & ' + p.m2, total + ' pts', p.score + '%', sessCount, (p.cats || []).slice(0, 3).join('; '), p.status || 'Pending'];
+  });
+  _downloadCSV('CGM_Insights_Report_India2026.csv', hdrs, rows);
+}
+
+function downloadParticipantTemplate() {
+  const hdrs = ['Name','Email','Type (early/experienced)','Location','Band','Team','Function'];
+  const sample = [
+    ['Priya Sharma','priya.sharma@sap.com','experienced','India','G4','Cloud ERP','Engineering'],
+    ['Arjun Mehta','arjun.mehta@sap.com','early','India','G2','Sales','Business Development']
+  ];
+  _downloadCSV('CGM_Participant_Upload_Template.csv', hdrs, sample);
+}
+
+function exportInsightsPrint() {
+  window.print();
+}
+
+function exportInsightsPPT() {
+  if (typeof PptxGenJS === 'undefined') {
+    showToast('PowerPoint library loading — please try again in a moment.');
+    return;
+  }
+  showToast('Generating PowerPoint dashboard...');
+  try {
+    const pptx = new PptxGenJS();
+    pptx.author = 'SAP India — Cross-Generational Mentoring';
+    pptx.subject = 'Program Insights Dashboard';
+    pptx.title = 'CGM Program Insights — India 2026';
+
+    // Helper — SAP colours
+    const SAP_BLUE = '0070F2', SAP_DARK = '00144A', SAP_GREEN = '107E3E', SAP_AMBER = 'E8A000';
+
+    // ── Slide 1: Title ──────────────────────────────────────────────
+    const s1 = pptx.addSlide();
+    s1.background = {color: SAP_DARK};
+    s1.addText('SAP Cross-Generational\nMentoring Programme', {x:0.6, y:1.2, w:8.5, h:1.8, fontSize:28, bold:true, color:'FFFFFF', fontFace:'Arial', lineSpacingMultiple:1.2});
+    s1.addText('Program Insights Dashboard — India 2026 Cohort', {x:0.6, y:3.0, w:8.5, h:0.5, fontSize:14, color:'A0C4FF', fontFace:'Arial'});
+    const now = new Date();
+    s1.addText('Generated: ' + now.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}), {x:0.6, y:3.6, w:4, h:0.4, fontSize:11, color:'7FAADB', fontFace:'Arial'});
+
+    // ── Slide 2: Key Metrics ────────────────────────────────────────
+    const s2 = pptx.addSlide();
+    s2.addText('Key Programme Metrics', {x:0.5, y:0.3, w:9, h:0.6, fontSize:20, bold:true, color:SAP_DARK, fontFace:'Arial'});
+
+    const total = PAIRS.length;
+    const approved = PAIRS.filter(p => p.status === 'Approved').length;
+    const avgScore = total ? Math.round(PAIRS.reduce((s, p) => s + (p.score || 0), 0) / total) : 0;
+    const totalSessions = SESSIONS.length;
+    const dummySessions = (typeof DUMMY_PAIRS !== 'undefined') ? DUMMY_PAIRS.reduce((s, d) => s + (d.testSessions || 0), 0) : 0;
+
+    const metrics = [
+      {label:'Total Pairs', value:String(total), color:SAP_BLUE},
+      {label:'Participants', value:String(total * 2), color:SAP_GREEN},
+      {label:'Avg Match Score', value:avgScore + '%', color:SAP_AMBER},
+      {label:'Sessions Logged', value:String(totalSessions + dummySessions), color:'E9730C'},
+    ];
+    metrics.forEach((m, i) => {
+      const x = 0.5 + i * 2.3;
+      s2.addShape(pptx.ShapeType.roundRect, {x, y:1.2, w:2.0, h:1.4, fill:{color:'F0F4FA'}, line:{color:'D0D8E8', width:1}, rectRadius:0.05});
+      s2.addText(m.value, {x, y:1.35, w:2.0, h:0.7, fontSize:26, bold:true, color:m.color, align:'center', fontFace:'Arial'});
+      s2.addText(m.label, {x, y:2.0, w:2.0, h:0.4, fontSize:10, color:'555555', align:'center', fontFace:'Arial'});
+    });
+
+    // Top 5 Pairs table
+    s2.addText('Top 5 Pairs by Leaderboard Score', {x:0.5, y:3.0, w:9, h:0.4, fontSize:13, bold:true, color:SAP_DARK, fontFace:'Arial'});
+    const allP = getAllPairs();
+    const sorted = [...allP].sort((a,b) => {
+      const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
+      return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
+    }).slice(0, 5);
+
+    const tblRows = [
+      [{text:'#', options:{bold:true, color:'FFFFFF', fill:{color:SAP_BLUE}}},
+       {text:'Pair', options:{bold:true, color:'FFFFFF', fill:{color:SAP_BLUE}}},
+       {text:'Score', options:{bold:true, color:'FFFFFF', fill:{color:SAP_BLUE}}},
+       {text:'Match %', options:{bold:true, color:'FFFFFF', fill:{color:SAP_BLUE}}},
+       {text:'Status', options:{bold:true, color:'FFFFFF', fill:{color:SAP_BLUE}}}]
+    ];
+    sorted.forEach((p, i) => {
+      const sc = getPairScore(p.idx);
+      const total = sc.meetings + sc.session + sc.refl;
+      tblRows.push([
+        {text:String(i+1)},
+        {text:p.m1 + ' & ' + p.m2},
+        {text:total + ' pts'},
+        {text:p.score + '%'},
+        {text:p.status || 'Pending'}
+      ]);
+    });
+    s2.addTable(tblRows, {x:0.5, y:3.4, w:9.0, colW:[0.5, 3.5, 1.2, 1.2, 1.2], fontSize:10, border:{type:'solid', color:'D0D8E8', pt:0.5}, fontFace:'Arial'});
+
+    // ── Slide 3: Leaderboard Breakdown ──────────────────────────────
+    const s3 = pptx.addSlide();
+    s3.addText('Leaderboard Score Breakdown', {x:0.5, y:0.3, w:9, h:0.6, fontSize:20, bold:true, color:SAP_DARK, fontFace:'Arial'});
+    s3.addText('Scoring: Meeting Frequency (40 pts) + Session Progress (35 pts) + Reflection Quality (25 pts) = 100 pts max', {x:0.5, y:0.85, w:9, h:0.35, fontSize:10, color:'666666', fontFace:'Arial'});
+
+    const lbRows = [
+      [{text:'Pair', options:{bold:true, color:'FFFFFF', fill:{color:SAP_DARK}}},
+       {text:'Meeting /40', options:{bold:true, color:'FFFFFF', fill:{color:SAP_DARK}}},
+       {text:'Session /35', options:{bold:true, color:'FFFFFF', fill:{color:SAP_DARK}}},
+       {text:'Reflection /25', options:{bold:true, color:'FFFFFF', fill:{color:SAP_DARK}}},
+       {text:'Total /100', options:{bold:true, color:'FFFFFF', fill:{color:SAP_DARK}}}]
+    ];
+    const top10 = [...allP].sort((a,b) => {
+      const sa = getPairScore(a.idx), sb = getPairScore(b.idx);
+      return (sb.meetings+sb.session+sb.refl) - (sa.meetings+sa.session+sa.refl);
+    }).slice(0, 10);
+    top10.forEach(p => {
+      const sc = getPairScore(p.idx);
+      const t = sc.meetings + sc.session + sc.refl;
+      lbRows.push([
+        {text:p.m1.split(' ')[0] + ' & ' + p.m2.split(' ')[0] + (p.isDummy ? ' (Test)' : '')},
+        {text:String(sc.meetings)},
+        {text:String(sc.session)},
+        {text:String(sc.refl)},
+        {text:String(t), options:{bold:true}}
+      ]);
+    });
+    s3.addTable(lbRows, {x:0.5, y:1.3, w:9.0, colW:[3.0, 1.5, 1.5, 1.5, 1.5], fontSize:10, border:{type:'solid', color:'D0D8E8', pt:0.5}, fontFace:'Arial'});
+
+    // ── Slide 4: Programme Team ─────────────────────────────────────
+    const s4 = pptx.addSlide();
+    s4.addText('Programme Team', {x:0.5, y:0.3, w:9, h:0.6, fontSize:20, bold:true, color:SAP_DARK, fontFace:'Arial'});
+    s4.addText('For questions or support: IndiaHR@sap.com', {x:0.5, y:0.85, w:9, h:0.35, fontSize:11, color:SAP_BLUE, fontFace:'Arial'});
+    s4.addText('Manimoy Biswas — Programme Lead\nPriyanga Balamurugan — Co-Lead & Technical\nSAP India — Cross-Generational Mentoring Pilot 2026', {x:0.5, y:1.5, w:8, h:1.2, fontSize:12, color:'333333', fontFace:'Arial', lineSpacingMultiple:1.5});
+
+    // Download
+    pptx.writeFile({fileName: 'CGM_Insights_Dashboard_' + now.toISOString().split('T')[0] + '.pptx'})
+      .then(() => showToast('PowerPoint exported successfully!'))
+      .catch(e => showToast('Export failed: ' + (e.message || e)));
+  } catch (e) {
+    showToast('PPT export error: ' + (e.message || e));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JOURNEY TRACKER — PROGRESS REPORT EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+function exportProgressReport() {
+  const idx    = typeof currentJourneyIdx !== 'undefined' ? currentJourneyIdx : MY_PAIR_IDX;
+  const pair   = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
+  const topics = (PAIR_TOPICS && PAIR_TOPICS[idx]) ? PAIR_TOPICS[idx] : (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[idx]) ? DUMMY_PAIR_TOPICS[idx] : [];
+  const state  = _getJourneyState(idx);
+
+  const headers = ['Pair','Mentor','Mentee','Session #','Topic','Type','Status','Notes'];
+  const rows = topics.map((t, i) => {
+    const sess = (state.sessions && state.sessions[i]) || { done: false, notes: '' };
+    // For dummy pair topics, use the done flag from DUMMY_PAIR_TOPICS directly
+    const isDone = (typeof t.done !== 'undefined') ? t.done : sess.done;
+    return [
+      pair ? (pair.m1 + ' & ' + pair.m2) : ('Pair ' + (idx + 1)),
+      pair ? pair.m1 : '',
+      pair ? pair.m2 : '',
+      i + 1,
+      t.t || t.topic || t.title || ('Session ' + (i + 1)),
+      t.type || (i % 2 === 0 ? 'Reverse' : 'Traditional'),
+      isDone ? 'Completed' : 'Pending',
+      (t.notes || sess.notes || '').replace(/"/g, '""')
+    ];
+  });
+
+  const filename = 'CGM_Progress_' + (pair ? (pair.m1 + '_' + pair.m2).replace(/\s+/g, '_') : ('Pair' + (idx + 1))) + '.csv';
+  _downloadCSV(filename, headers, rows);
+  showToast('Progress report downloaded');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v77 ADD DUMMY PAIR MODAL (admin only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _DUMMY_COLORS = ['#5C35CC','#E91E7A','#00897B','#F57F17','#1565C0','#6A1B9A','#BF360C','#00695C','#AD1457','#37474F'];
+let _dummyCounter = DUMMY_PAIRS.length;
+
+function openAddDummyPairModal() {
+  let m = document.getElementById('add-dummy-pair-modal');
+  if (m) { m.style.display = 'flex'; return; }
+  m = document.createElement('div');
+  m.id = 'add-dummy-pair-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `
+    <div style="background:var(--cb);border-radius:16px;padding:24px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="font-size:16px;font-weight:800;color:var(--tp)"><i class="fas fa-flask" style="color:#5C35CC;margin-right:8px"></i>Add Dummy Pair</div>
+        <button onclick="closeAddDummyPairModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ts)">&times;</button>
+      </div>
+      <div style="display:grid;gap:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Mentor Name *</label>
+            <input id="dp-mentor" type="text" placeholder="e.g. Aryan Kapoor" style="width:100%;height:36px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;font-size:13px;background:var(--sb);color:var(--tp);margin-top:4px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Mentee Name *</label>
+            <input id="dp-mentee" type="text" placeholder="e.g. Meera Nair" style="width:100%;height:36px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;font-size:13px;background:var(--sb);color:var(--tp);margin-top:4px;box-sizing:border-box">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Mentor Email *</label>
+            <input id="dp-mentor-email" type="email" placeholder="name@sap.com" style="width:100%;height:36px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;font-size:13px;background:var(--sb);color:var(--tp);margin-top:4px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Mentee Email *</label>
+            <input id="dp-mentee-email" type="email" placeholder="name@sap.com" style="width:100%;height:36px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;font-size:13px;background:var(--sb);color:var(--tp);margin-top:4px;box-sizing:border-box">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Match Score: <span id="dp-score-val">85</span>%</label>
+          <input id="dp-score" type="range" min="70" max="100" value="85" oninput="document.getElementById('dp-score-val').textContent=this.value" style="width:100%;margin-top:6px;accent-color:#0070F2">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase;letter-spacing:.05em">Sessions Completed: <span id="dp-sess-val">3</span></label>
+          <input id="dp-sessions" type="range" min="0" max="12" value="3" oninput="document.getElementById('dp-sess-val').textContent=this.value" style="width:100%;margin-top:6px;accent-color:#107E3E">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ts);margin-top:2px"><span>0</span><span>12</span></div>
+        </div>
+      </div>
+      <div id="dp-err" style="display:none;margin-top:12px;padding:8px 12px;background:#FFF0F0;border-radius:8px;font-size:12px;color:#BB0000"></div>
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button onclick="saveAddDummyPair()" style="flex:1;height:38px;background:#5C35CC;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer"><i class="fas fa-flask"></i> Add Pair</button>
+        <button onclick="closeAddDummyPairModal()" style="height:38px;padding:0 18px;background:var(--pb);color:var(--ts);border:1px solid var(--bd);border-radius:8px;font-size:13px;cursor:pointer">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+function saveAddDummyPair() {
+  const mentor  = (document.getElementById('dp-mentor').value || '').trim();
+  const mentee  = (document.getElementById('dp-mentee').value || '').trim();
+  const mentorEmail = (document.getElementById('dp-mentor-email').value || '').trim().toLowerCase();
+  const menteeEmail = (document.getElementById('dp-mentee-email').value || '').trim().toLowerCase();
+  const score   = parseInt(document.getElementById('dp-score').value) || 85;
+  const sessions = parseInt(document.getElementById('dp-sessions').value) || 3;
+  const errEl   = document.getElementById('dp-err');
+
+  if (!mentor || !mentee) { errEl.textContent = 'Both mentor and mentee names are required.'; errEl.style.display = 'block'; return; }
+  if (!mentorEmail || !mentorEmail.includes('@')) { errEl.textContent = 'A valid mentor email is required for calendar integration.'; errEl.style.display = 'block'; return; }
+  if (!menteeEmail || !menteeEmail.includes('@')) { errEl.textContent = 'A valid mentee email is required for calendar integration.'; errEl.style.display = 'block'; return; }
+  if (DUMMY_PAIRS.length >= 5) { errEl.textContent = 'Maximum 5 dummy pairs allowed.'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+
+  _dummyCounter++;
+  const idx = 100 + _dummyCounter;
+  const i1 = mentor.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const i2 = mentee.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const c1 = _DUMMY_COLORS[(_dummyCounter * 2) % _DUMMY_COLORS.length];
+  const c2 = _DUMMY_COLORS[(_dummyCounter * 2 + 1) % _DUMMY_COLORS.length];
+  const email1 = mentorEmail;
+  const email2 = menteeEmail;
+
+  const newPair = {idx, m1:mentor, m2:mentee, i1, i2, c1, c2, score, loc:'India', status:'Approved', badge:'&#127775;', sessions, isDummy:true, testSessions:sessions, email1, email2, cats:['Test Data'], topics:'', tradTopics:[], revTopics:[]};
+  DUMMY_PAIRS.push(newPair);
+  // Seed empty topics for journey tracker
+  DUMMY_PAIR_TOPICS[idx] = [];
+  // Initialize PAIR_JOURNEY entry to prevent crashes when opening in Journey Tracker
+  PAIR_JOURNEY[idx] = {sessions:0, topics:0, resources:0, engagement:"0%", revDone:[false,false,false,false], tradDone:[false,false,false,false]};
+  DUMMY_PARTICIPANTS.push({name:mentor, type:'experienced', email:email1, status:'Paired', loc:'India', isDummy:true});
+  DUMMY_PARTICIPANTS.push({name:mentee, type:'early', email:email2, status:'Paired', loc:'India', isDummy:true});
+
+  // Refresh all views
+  renderParticipants(getAllParticipants());
+  _updateUploadStatus(getAllParticipants().length);
+  renderPairs();
+  renderLeaderboard(); renderLBChart();
+  // Force pair-sel dropdown rebuild next time journey tab loads
+  const _pSel = document.getElementById('pair-sel');
+  if (_pSel) _pSel._lastRole = null;
+
+  closeAddDummyPairModal();
+  showToast('Dummy pair added: ' + mentor + ' & ' + mentee);
+  logActivity('Added dummy pair: ' + mentor + ' & ' + mentee + ' (score ' + score + '%, ' + sessions + ' sessions)');
+}
+
+function closeAddDummyPairModal() {
+  const m = document.getElementById('add-dummy-pair-modal');
+  if (m) m.remove();
+}
+
+// Legacy aliases for backward compatibility
+function openAddParticipantModal() { openAddDummyPairModal(); }
+function submitAddParticipant() { saveAddDummyPair(); }
+function saveAddParticipant() { saveAddDummyPair(); }
+function closeAddParticipantModal() { closeAddDummyPairModal(); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE DUMMY PAIR
+// ─────────────────────────────────────────────────────────────────────────────
+function deleteDummyPair(idx) {
+  const pair = DUMMY_PAIRS.find(p => p.idx === idx);
+  if (!pair) return;
+  if (!confirm('Delete test pair "' + pair.m1 + ' & ' + pair.m2 + '"?')) return;
+  DUMMY_PAIRS = DUMMY_PAIRS.filter(p => p.idx !== idx);
+  DUMMY_PARTICIPANTS = DUMMY_PARTICIPANTS.filter(p => p.email !== (pair.email1) && p.email !== (pair.email2));
+  delete DUMMY_PAIR_TOPICS[idx];
+  delete PAIR_JOURNEY[idx];
+  // Refresh views
+  renderPairs();
+  renderParticipants(getAllParticipants());
+  _updateUploadStatus(getAllParticipants().length);
+  renderLeaderboard(); renderLBChart();
+  // Reset pair dropdown
+  const pSel = document.getElementById('pair-sel');
+  if (pSel) { pSel._lastRole = null; }
+  showToast('Test pair removed: ' + pair.m1 + ' & ' + pair.m2);
+  logActivity('Deleted dummy pair: ' + pair.m1 + ' & ' + pair.m2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASSIGN TOPICS MODAL (for dummy pairs)
+// ─────────────────────────────────────────────────────────────────────────────
+function openAssignTopicsModal(pairIdx) {
+  const pair = DUMMY_PAIRS.find(p => p.idx === pairIdx);
+  if (!pair) return;
+  const existing = (DUMMY_PAIR_TOPICS[pairIdx] || []).map(t => t.t).join('\n');
+  let m = document.getElementById('assign-topics-modal');
+  if (m) m.remove();
+  m = document.createElement('div');
+  m.id = 'assign-topics-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `
+    <div style="background:var(--cb);border-radius:16px;padding:24px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:15px;font-weight:800;color:var(--tp)"><i class="fas fa-tag" style="color:#5C35CC;margin-right:8px"></i>Assign Topics — ${pair.m1} & ${pair.m2}</div>
+        <button onclick="document.getElementById('assign-topics-modal').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ts)">&times;</button>
+      </div>
+      <p style="font-size:12px;color:var(--ts);margin-bottom:12px">Enter one topic per line. These will be used in the Journey Tracker for this pair.</p>
+      <textarea id="at-topics" rows="8" placeholder="AI productivity tools&#10;Career planning&#10;Building visibility at work&#10;..." style="width:100%;padding:10px;font-size:13px;border:1px solid var(--bd);border-radius:8px;background:var(--sb);color:var(--tp);resize:vertical;box-sizing:border-box;line-height:1.6">${existing}</textarea>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button onclick="saveAssignTopics(${pairIdx})" style="flex:1;height:38px;background:#5C35CC;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer"><i class="fas fa-check"></i> Save Topics</button>
+        <button onclick="document.getElementById('assign-topics-modal').remove()" style="height:38px;padding:0 18px;background:var(--pb);color:var(--ts);border:1px solid var(--bd);border-radius:8px;font-size:13px;cursor:pointer">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+function saveAssignTopics(pairIdx) {
+  const raw = (document.getElementById('at-topics').value || '').trim();
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) { showToast('Please enter at least one topic.'); return; }
+  // Update DUMMY_PAIR_TOPICS
+  DUMMY_PAIR_TOPICS[pairIdx] = lines.map(t => ({t, done: false, notes: '', qs: []}));
+  // Update pair.topics string and topic arrays
+  const pair = DUMMY_PAIRS.find(p => p.idx === pairIdx);
+  if (pair) {
+    pair.topics = lines.join(', ');
+    pair.revTopics = lines.filter((_, i) => i % 2 === 0);
+    pair.tradTopics = lines.filter((_, i) => i % 2 === 1);
+  }
+  // Reinitialize PAIR_JOURNEY for this pair (reset all checkboxes since topics changed)
+  PAIR_JOURNEY[pairIdx] = {sessions:0, topics:0, resources:0, engagement:"0%", revDone:[false,false,false,false], tradDone:[false,false,false,false]};
+  // Refresh
+  renderPairs();
+  // Reset journey dropdown so it picks up new topics
+  const pSel = document.getElementById('pair-sel');
+  if (pSel) pSel._lastRole = null;
+  // If currently viewing this pair in journey tracker, reload it
+  if (currentJourneyIdx === pairIdx) {
+    currentPairCurriculum = generatePairCurriculum(pairIdx);
+    renderCurriculum(1); renderCurriculum(2);
+    updateJourneyKPIs();
+  }
+  document.getElementById('assign-topics-modal').remove();
+  showToast(lines.length + ' topics assigned to ' + (pair ? pair.m1 + ' & ' + pair.m2 : 'pair'));
+  logActivity('Assigned ' + lines.length + ' topics to dummy pair idx ' + pairIdx);
+}
+
 </script>
+
 </body>
 </html>

@@ -1148,6 +1148,12 @@ function _fbRemove(path) {
 
 // Sync flags to prevent loops
 let _fbSyncing = false;
+let _fbSyncTimer = null;
+// Safety: auto-reset _fbSyncing after 3s in case a render error leaves it stuck
+function _fbSyncGuard() {
+  if (_fbSyncTimer) clearTimeout(_fbSyncTimer);
+  _fbSyncTimer = setTimeout(() => { _fbSyncing = false; }, 3000);
+}
 
 // ── Sync: SESSIONS ──────────────────────────────────────────────────────────
 function _fbSyncSessions() {
@@ -1159,16 +1165,19 @@ function _fbListenSessions() {
   _fbDB.ref('sessions').on('value', snap => {
     if (_fbSyncing) return;
     const data = snap.val();
-    if (data && Array.isArray(data)) {
-      _fbSyncing = true;
-      SESSIONS.length = 0;
-      data.forEach(s => SESSIONS.push(s));
-      renderLeaderboard(); renderLBChart();
-      if (typeof currentJourneyIdx !== 'undefined') {
-        renderSessionLog(currentJourneyIdx);
-        updateJourneyKPIs();
-        renderCompChart();
-      }
+    if (data) {
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        const arr = Array.isArray(data) ? data : Object.values(data);
+        SESSIONS.length = 0;
+        arr.forEach(s => { if (s) SESSIONS.push(s); });
+        renderLeaderboard(); renderLBChart();
+        if (typeof currentJourneyIdx !== 'undefined') {
+          renderSessionLog(currentJourneyIdx);
+          updateJourneyKPIs();
+          renderCompChart();
+        }
+      } catch(e) { console.warn('FB listener error (sessions):', e); }
       _fbSyncing = false;
     }
   });
@@ -1196,20 +1205,22 @@ function _fbListenJourney() {
     if (_fbSyncing) return;
     const data = snap.val();
     if (data && typeof data === 'object') {
-      _fbSyncing = true;
-      Object.keys(data).forEach(key => {
-        const idx = parseInt(key);
-        PAIR_JOURNEY[idx] = data[key];
-      });
-      if (typeof currentJourneyIdx !== 'undefined') {
-        updateJourneyKPIs();
-        renderCompChart();
-        if (typeof renderCurriculum === 'function') {
-          renderCurriculum(1);
-          renderCurriculum(2);
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        Object.keys(data).forEach(key => {
+          const idx = parseInt(key);
+          PAIR_JOURNEY[idx] = data[key];
+        });
+        if (typeof currentJourneyIdx !== 'undefined') {
+          updateJourneyKPIs();
+          renderCompChart();
+          if (typeof renderCurriculum === 'function') {
+            renderCurriculum(1);
+            renderCurriculum(2);
+          }
         }
-      }
-      renderLeaderboard(); renderLBChart();
+        renderLeaderboard(); renderLBChart();
+      } catch(e) { console.warn('FB listener error (journey):', e); }
       _fbSyncing = false;
     }
   });
@@ -1226,14 +1237,18 @@ function _fbListenPairStatus() {
   _fbDB.ref('pairStatus').on('value', snap => {
     if (_fbSyncing) return;
     const data = snap.val();
-    if (data && Array.isArray(data)) {
-      _fbSyncing = true;
-      data.forEach(s => {
-        const pair = PAIRS.find(p => p.idx === s.idx);
-        if (pair) pair.status = s.status;
-      });
-      renderPairs();
-      renderLeaderboard();
+    if (data) {
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        const arr = Array.isArray(data) ? data : Object.values(data);
+        arr.forEach(s => {
+          if (!s) return;
+          const pair = PAIRS.find(p => p.idx === s.idx);
+          if (pair) pair.status = s.status;
+        });
+        renderPairs();
+        renderLeaderboard();
+      } catch(e) { console.warn('FB listener error (pairStatus):', e); }
       _fbSyncing = false;
     }
   });
@@ -1255,21 +1270,24 @@ function _fbListenDummyPairs() {
   _fbDB.ref('dummyPairs').on('value', snap => {
     if (_fbSyncing) return;
     const data = snap.val();
-    if (data && Array.isArray(data)) {
-      _fbSyncing = true;
-      DUMMY_PAIRS.length = 0;
-      data.forEach(d => DUMMY_PAIRS.push(d));
-      // Rebuild DUMMY_PARTICIPANTS from pairs
-      DUMMY_PARTICIPANTS.length = 0;
-      DUMMY_PAIRS.forEach(dp => {
-        DUMMY_PARTICIPANTS.push({name:dp.m1, type:'experienced', email:dp.email1, status:'Paired', loc:'India', isDummy:true});
-        DUMMY_PARTICIPANTS.push({name:dp.m2, type:'early', email:dp.email2, status:'Paired', loc:'India', isDummy:true});
-      });
-      renderPairs();
-      renderLeaderboard(); renderLBChart();
-      if (CURRENT_ROLE === 'admin') {
-        renderParticipants(getAllParticipants());
-      }
+    if (data) {
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        const arr = Array.isArray(data) ? data : Object.values(data);
+        DUMMY_PAIRS.length = 0;
+        arr.forEach(d => { if (d) DUMMY_PAIRS.push(d); });
+        // Rebuild DUMMY_PARTICIPANTS from pairs
+        DUMMY_PARTICIPANTS.length = 0;
+        DUMMY_PAIRS.forEach(dp => {
+          DUMMY_PARTICIPANTS.push({name:dp.m1, type:'experienced', email:dp.email1, status:'Paired', loc:'India', isDummy:true});
+          DUMMY_PARTICIPANTS.push({name:dp.m2, type:'early', email:dp.email2, status:'Paired', loc:'India', isDummy:true});
+        });
+        renderPairs();
+        renderLeaderboard(); renderLBChart();
+        if (CURRENT_ROLE === 'admin') {
+          renderParticipants(getAllParticipants());
+        }
+      } catch(e) { console.warn('FB listener error (dummyPairs):', e); }
       _fbSyncing = false;
     }
   });
@@ -1277,10 +1295,12 @@ function _fbListenDummyPairs() {
     if (_fbSyncing) return;
     const data = snap.val();
     if (data && typeof data === 'object') {
-      _fbSyncing = true;
-      Object.keys(data).forEach(key => {
-        DUMMY_PAIR_TOPICS[parseInt(key)] = data[key];
-      });
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        Object.keys(data).forEach(key => {
+          DUMMY_PAIR_TOPICS[parseInt(key)] = data[key];
+        });
+      } catch(e) { console.warn('FB listener error (dummyPairTopics):', e); }
       _fbSyncing = false;
     }
   });
@@ -1296,11 +1316,14 @@ function _fbListenFeedback() {
   _fbDB.ref('feedback').on('value', snap => {
     if (_fbSyncing) return;
     const data = snap.val();
-    if (data && Array.isArray(data)) {
-      _fbSyncing = true;
-      FEEDBACK.length = 0;
-      data.forEach(f => FEEDBACK.push(f));
-      if (typeof updateP5NPSStats === 'function') updateP5NPSStats();
+    if (data) {
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        const arr = Array.isArray(data) ? data : Object.values(data);
+        FEEDBACK.length = 0;
+        arr.forEach(f => { if (f) FEEDBACK.push(f); });
+        if (typeof updateP5NPSStats === 'function') updateP5NPSStats();
+      } catch(e) { console.warn('FB listener error (feedback):', e); }
       _fbSyncing = false;
     }
   });
@@ -1310,7 +1333,12 @@ function _fbListenFeedback() {
 function _fbSyncResources() {
   if (!_fbDB) return;
   const obj = {};
-  Object.keys(PAIR_RESOURCES).forEach(k => { if (PAIR_RESOURCES[k]) obj[k] = PAIR_RESOURCES[k]; });
+  Object.keys(PAIR_RESOURCES).forEach(k => {
+    if (PAIR_RESOURCES[k] && PAIR_RESOURCES[k].length) {
+      // Strip blob URLs (they are session-specific) — keep metadata for scoring/display
+      obj[k] = PAIR_RESOURCES[k].map(r => ({name:r.name, size:r.size, type:r.type, date:r.date}));
+    }
+  });
   _fbDB.ref('resources').set(obj);
 }
 function _fbListenResources() {
@@ -1319,10 +1347,12 @@ function _fbListenResources() {
     if (_fbSyncing) return;
     const data = snap.val();
     if (data && typeof data === 'object') {
-      _fbSyncing = true;
-      Object.keys(PAIR_RESOURCES).forEach(k => delete PAIR_RESOURCES[k]);
-      Object.keys(data).forEach(k => { PAIR_RESOURCES[parseInt(k)] = data[k]; });
-      if (typeof renderResources === 'function') renderResources();
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        Object.keys(PAIR_RESOURCES).forEach(k => delete PAIR_RESOURCES[k]);
+        Object.keys(data).forEach(k => { PAIR_RESOURCES[parseInt(k)] = data[k]; });
+        if (typeof renderResources === 'function') renderResources();
+      } catch(e) { console.warn('FB listener error (resources):', e); }
       _fbSyncing = false;
     }
   });
@@ -1331,6 +1361,20 @@ function _fbListenResources() {
 // ── Master: Start all listeners on page load ────────────────────────────────
 function _fbStartListeners() {
   if (!_fbDB) return;
+  // On first connection, push current state if Firebase is empty
+  _fbDB.ref('sessions').once('value', snap => {
+    if (!snap.exists() && SESSIONS.length > 0) _fbSyncSessions();
+  });
+  _fbDB.ref('journey').once('value', snap => {
+    if (!snap.exists()) _fbSyncJourney();
+  });
+  _fbDB.ref('pairStatus').once('value', snap => {
+    if (!snap.exists()) _fbSyncPairStatus();
+  });
+  _fbDB.ref('dummyPairs').once('value', snap => {
+    if (!snap.exists() && DUMMY_PAIRS.length > 0) _fbSyncDummyPairs();
+  });
+  // Start live listeners
   _fbListenSessions();
   _fbListenJourney();
   _fbListenPairStatus();
@@ -2743,6 +2787,8 @@ function repairPair(idx) {
   renderStatusChart();
   updatePairKPIs();
   updateJourneyGuard();
+  _fbSyncPairStatus();
+  _fbSyncJourney();
 }
 
 function approveAll() {
@@ -2751,6 +2797,7 @@ function approveAll() {
   renderStatusChart();
   updatePairKPIs();
   updateJourneyGuard();
+  _fbSyncPairStatus();
   showToast("All 15 pairs approved! Participants will receive notifications.");
   logActivity("All <strong>15 pairs</strong> approved in bulk. Participants notified.", "fas fa-check-double", "#107E3E");
 }
@@ -2761,6 +2808,7 @@ function unapproveAll() {
   renderStatusChart();
   updatePairKPIs();
   updateJourneyGuard();
+  _fbSyncPairStatus();
   showToast("All pairs reset to Pending. Participants have been notified.");
   logActivity("All pairs unapproved — reset to Pending.", "fas fa-undo", "#BB0000");
 }
@@ -2816,6 +2864,8 @@ function generateRePairing() {
   renderStatusChart();
   updatePairKPIs();
   updateJourneyGuard();
+  _fbSyncPairStatus();
+  _fbSyncJourney();
 
   const msg = totalSwaps > 0
     ? `Re-pairing complete — ${totalSwaps} swap(s) across ${pool.length} pair(s) for better topic alignment. All reset to Pending.`
@@ -3459,6 +3509,7 @@ function handleRepoUpload(files) {
   });
   renderResources();
   updateJourneyKPIs();
+  _fbSyncResources();
   const n = files.length;
   showToast(n === 1 ? `"${files[0].name}" added to repository.` : `${n} files added to repository.`);
 }
@@ -3470,6 +3521,7 @@ function removeRepoFile(idx) {
   if (removed && removed.url) URL.revokeObjectURL(removed.url);
   renderResources();
   updateJourneyKPIs();
+  _fbSyncResources();
   showToast("File removed from repository.");
 }
 
@@ -4433,6 +4485,9 @@ function _bootPortal(session) {
     const banner = document.getElementById("nps-survey-banner");
     if (banner) banner.style.display = "flex";
   }
+  // ── Firebase: start real-time listeners + show connection status ──
+  _fbStartListeners();
+  _fbShowStatus();
 }
 
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
@@ -5373,6 +5428,8 @@ function saveAssignTopics(pairIdx) {
   document.getElementById('assign-topics-modal').remove();
   showToast(lines.length + ' topics assigned to ' + (pair ? pair.m1 + ' & ' + pair.m2 : 'pair'));
   logActivity('Assigned ' + lines.length + ' topics to dummy pair idx ' + pairIdx);
+  _fbSyncDummyPairs();
+  _fbSyncJourney();
 }
 
 </script>

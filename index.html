@@ -616,31 +616,6 @@ body.role-participant #p1-participant-hero { display: block !important; }
     </div>
   </div>
   <!-- Program Design Contacts -->
-  <div class="card" style="padding:14px 18px;margin-bottom:20px;background:linear-gradient(135deg,rgba(0,112,242,.05),rgba(0,20,74,.05));border-color:rgba(0,112,242,.25)">
-    <div class="sh2" style="margin-bottom:10px"><i class="fas fa-comments" style="color:#0070F2"></i>For Questions on Program Design, please contact</div>
-    <div style="display:flex;flex-wrap:wrap;gap:12px">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--cb);border:1px solid var(--bd);flex:1;min-width:220px">
-        <div class="av" style="background:#00144A;width:40px;height:40px;font-size:13px;flex-shrink:0">RT</div>
-        <div>
-          <p style="font-weight:700;font-size:13.5px">Rishabh Tripathi</p>
-          <span class="bdg bbl" style="margin-top:3px;display:inline-flex">Bridge Forum Lead</span>
-        </div>
-        <div style="margin-left:auto;display:flex;gap:5px">
-          <a href="mailto:rishabh.tripathi@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--cb);border:1px solid var(--bd);flex:1;min-width:220px">
-        <div class="av" style="background:#880E4F;width:40px;height:40px;font-size:13px;flex-shrink:0">SM</div>
-        <div>
-          <p style="font-weight:700;font-size:13.5px">Shweta Mohanty</p>
-          <span class="bdg bpu" style="margin-top:3px;display:inline-flex">HR Head</span>
-        </div>
-        <div style="margin-left:auto;display:flex;gap:5px">
-          <a href="mailto:shweta.mohanty@sap.com" class="btn bg2 sm"><i class="fas fa-envelope" style="font-size:11px"></i></a>
-        </div>
-      </div>
-    </div>
-  </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div class="card" style="padding:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -1130,6 +1105,7 @@ try {
   _fbApp = firebase.initializeApp(_FB_CONFIG);
   _fbDB = firebase.database();
   _fbConnected = true;
+  console.log('[FB] Firebase initialized successfully. DB:', _fbDB ? 'ready' : 'null');
 } catch(e) { console.warn('Firebase init failed — running in offline mode:', e.message); }
 
 // ── Firebase Sync Helpers ───────────────────────────────────────────────────
@@ -1157,8 +1133,11 @@ function _fbSyncGuard() {
 
 // ── Sync: SESSIONS ──────────────────────────────────────────────────────────
 function _fbSyncSessions() {
-  if (!_fbDB) return;
-  _fbDB.ref('sessions').set(SESSIONS);
+  if (!_fbDB) { console.warn('[FB] sessions sync skipped — no DB'); return; }
+  console.log('[FB] Writing sessions:', SESSIONS.length, 'entries');
+  _fbDB.ref('sessions').set(SESSIONS)
+    .then(() => console.log('[FB] sessions written successfully'))
+    .catch(e => console.error('[FB] sessions write FAILED:', e));
 }
 function _fbListenSessions() {
   if (!_fbDB) return;
@@ -1185,7 +1164,7 @@ function _fbListenSessions() {
 
 // ── Sync: PAIR_JOURNEY ──────────────────────────────────────────────────────
 function _fbSyncJourney() {
-  if (!_fbDB) return;
+  if (!_fbDB) { console.warn('[FB] journey sync skipped — no DB'); return; }
   // Convert sparse array to object for Firebase (sparse arrays don't serialize well)
   const obj = {};
   for (let i = 0; i < PAIR_JOURNEY.length; i++) {
@@ -1197,7 +1176,10 @@ function _fbSyncJourney() {
       if (PAIR_JOURNEY[dp.idx]) obj[dp.idx] = PAIR_JOURNEY[dp.idx];
     });
   }
-  _fbDB.ref('journey').set(obj);
+  console.log('[FB] Writing journey:', Object.keys(obj).length, 'entries');
+  _fbDB.ref('journey').set(obj)
+    .then(() => console.log('[FB] journey written successfully'))
+    .catch(e => console.error('[FB] journey write FAILED:', e));
 }
 function _fbListenJourney() {
   if (!_fbDB) return;
@@ -1209,7 +1191,11 @@ function _fbListenJourney() {
       try {
         Object.keys(data).forEach(key => {
           const idx = parseInt(key);
-          PAIR_JOURNEY[idx] = data[key];
+          const entry = data[key];
+          // Safeguard: cap revDone/tradDone arrays to 3 elements (migration from old 8-topic data)
+          if (entry && Array.isArray(entry.revDone) && entry.revDone.length > 3) entry.revDone = entry.revDone.slice(0, 3);
+          if (entry && Array.isArray(entry.tradDone) && entry.tradDone.length > 3) entry.tradDone = entry.tradDone.slice(0, 3);
+          PAIR_JOURNEY[idx] = entry;
         });
         if (typeof currentJourneyIdx !== 'undefined') {
           updateJourneyKPIs();
@@ -1228,9 +1214,12 @@ function _fbListenJourney() {
 
 // ── Sync: PAIR STATUS (approvals) ───────────────────────────────────────────
 function _fbSyncPairStatus() {
-  if (!_fbDB) return;
+  if (!_fbDB) { console.warn('[FB] pairStatus sync skipped — no DB'); return; }
   const statuses = PAIRS.map(p => ({idx: p.idx, status: p.status}));
-  _fbDB.ref('pairStatus').set(statuses);
+  console.log('[FB] Writing pairStatus:', JSON.stringify(statuses.map(s=>s.status)));
+  _fbDB.ref('pairStatus').set(statuses)
+    .then(() => console.log('[FB] pairStatus written successfully'))
+    .catch(e => console.error('[FB] pairStatus write FAILED:', e));
 }
 function _fbListenPairStatus() {
   if (!_fbDB) return;
@@ -1256,14 +1245,19 @@ function _fbListenPairStatus() {
 
 // ── Sync: DUMMY PAIRS (admin-added test pairs) ──────────────────────────────
 function _fbSyncDummyPairs() {
-  if (!_fbDB) return;
-  _fbDB.ref('dummyPairs').set(DUMMY_PAIRS);
+  if (!_fbDB) { console.warn('[FB] dummyPairs sync skipped — no DB'); return; }
+  console.log('[FB] Writing dummyPairs:', DUMMY_PAIRS.length, 'pairs');
+  _fbDB.ref('dummyPairs').set(DUMMY_PAIRS)
+    .then(() => console.log('[FB] dummyPairs written successfully'))
+    .catch(e => console.error('[FB] dummyPairs write FAILED:', e));
   // Also sync their topics
   const topicObj = {};
   DUMMY_PAIRS.forEach(dp => {
     if (DUMMY_PAIR_TOPICS[dp.idx]) topicObj[dp.idx] = DUMMY_PAIR_TOPICS[dp.idx];
   });
-  _fbDB.ref('dummyPairTopics').set(topicObj);
+  _fbDB.ref('dummyPairTopics').set(topicObj)
+    .then(() => console.log('[FB] dummyPairTopics written successfully'))
+    .catch(e => console.error('[FB] dummyPairTopics write FAILED:', e));
 }
 function _fbListenDummyPairs() {
   if (!_fbDB) return;
@@ -1308,8 +1302,11 @@ function _fbListenDummyPairs() {
 
 // ── Sync: NPS FEEDBACK ──────────────────────────────────────────────────────
 function _fbSyncFeedback() {
-  if (!_fbDB) return;
-  _fbDB.ref('feedback').set(FEEDBACK);
+  if (!_fbDB) { console.warn('[FB] feedback sync skipped — no DB'); return; }
+  console.log('[FB] Writing feedback:', FEEDBACK.length, 'entries');
+  _fbDB.ref('feedback').set(FEEDBACK)
+    .then(() => console.log('[FB] feedback written successfully'))
+    .catch(e => console.error('[FB] feedback write FAILED:', e));
 }
 function _fbListenFeedback() {
   if (!_fbDB) return;
@@ -1331,15 +1328,17 @@ function _fbListenFeedback() {
 
 // ── Sync: RESOURCES ─────────────────────────────────────────────────────────
 function _fbSyncResources() {
-  if (!_fbDB) return;
+  if (!_fbDB) { console.warn('[FB] resources sync skipped — no DB'); return; }
   const obj = {};
   Object.keys(PAIR_RESOURCES).forEach(k => {
     if (PAIR_RESOURCES[k] && PAIR_RESOURCES[k].length) {
-      // Strip blob URLs (they are session-specific) — keep metadata for scoring/display
       obj[k] = PAIR_RESOURCES[k].map(r => ({name:r.name, size:r.size, type:r.type, date:r.date}));
     }
   });
-  _fbDB.ref('resources').set(obj);
+  console.log('[FB] Writing resources:', Object.keys(obj).length, 'pairs with files');
+  _fbDB.ref('resources').set(obj)
+    .then(() => console.log('[FB] resources written successfully'))
+    .catch(e => console.error('[FB] resources write FAILED:', e));
 }
 function _fbListenResources() {
   if (!_fbDB) return;
@@ -1360,7 +1359,8 @@ function _fbListenResources() {
 
 // ── Master: Start all listeners on page load ────────────────────────────────
 function _fbStartListeners() {
-  if (!_fbDB) return;
+  if (!_fbDB) { console.warn('[FB] _fbStartListeners skipped — no DB'); return; }
+  console.log('[FB] Starting listeners and initial push checks...');
   // On first connection, push current state if Firebase is empty
   _fbDB.ref('sessions').once('value', snap => {
     if (!snap.exists() && SESSIONS.length > 0) _fbSyncSessions();
@@ -1574,9 +1574,7 @@ const ADMIN_EMAILS = [
   "surabhi.sethi@sap.com",
   "aakriti.sharma@sap.com",
   "rachita.sreedasyam@sap.com",
-  "benjin.samuel@sap.com",
-  "rishabh.tripathi@sap.com",
-  "shweta.mohanty@sap.com"
+  "benjin.samuel@sap.com"
 ];
 const ADMIN_PROFILES = {
   "manimoy.biswas@sap.com":       ["Manimoy Biswas",        "MB", "#0070F2", "Program Lead"],
@@ -1584,9 +1582,7 @@ const ADMIN_PROFILES = {
   "surabhi.sethi@sap.com":        ["Surabhi Sethi",         "SS", "#6A1B9A", "PMO"],
   "aakriti.sharma@sap.com":       ["Aakriti Sharma",        "AS", "#E65100", "SAP Academy"],
   "rachita.sreedasyam@sap.com":   ["Rachita Sreedasyam",    "RS", "#0277BD", "VT STAR"],
-  "benjin.samuel@sap.com":        ["Benjin Samuel",         "BS", "#1B5E20", "PMO"],
-  "rishabh.tripathi@sap.com":     ["Rishabh Tripathi",      "RT", "#1565C0", "Bridge Forum Lead"],
-  "shweta.mohanty@sap.com":       ["Shweta Mohanty",        "SM", "#00144A", "HR Head"]
+  "benjin.samuel@sap.com":        ["Benjin Samuel",         "BS", "#1B5E20", "PMO"]
 };
 
 function identifyUser(email) {
@@ -1826,9 +1822,10 @@ const PARTICIPANTS = [
 // Pre-seeded with 3 pairs; admin can add up to 5 via "Add Dummy Pair" modal.
 // testSessions drives the leaderboard score calculation for dummy pairs.
 let DUMMY_PAIRS = [
-  {idx:100,m1:'Aryan Kapoor',  m2:'Meera Nair',   i1:'AK',i2:'MN',c1:'#5C35CC',c2:'#E91E7A',score:88,loc:'India',status:'Approved',badge:'&#127775;',sessions:5,isDummy:true,testSessions:5, email1:'aryan.kapoor@sap.com', email2:'meera.nair@sap.com', cats:['AI & Technology','Career & Growth'], topics:'AI productivity tools, Async vs formal communication, Gen Z approach to problem solving, Modern Learning Mindsets, Career planning without a fixed roadmap, Building visibility at work, Strategic Thinking, Executive Communication', tradTopics:['Career planning without a fixed roadmap','Building visibility at work','Strategic Thinking','Executive Communication'], revTopics:['AI productivity tools','Async vs formal communication','Gen Z approach to problem solving','Modern Learning Mindsets']},
-  {idx:101,m1:'Kiran Patel',   m2:'Divya Reddy',  i1:'KP',i2:'DR',c1:'#00897B',c2:'#F57F17',score:76,loc:'India',status:'Approved',badge:'&#127775;',sessions:2,isDummy:true,testSessions:2, email1:'kiran.patel@sap.com', email2:'divya.reddy@sap.com', cats:['Communication','People & Culture'], topics:'Cross-generational communication styles, Building trust in new teams, Feedback culture across generations', tradTopics:['Building trust in new teams'], revTopics:['Cross-generational communication styles','Feedback culture across generations']},
-  {idx:102,m1:'Suresh Iyer',   m2:'Pooja Verma',  i1:'SI',i2:'PV',c1:'#1565C0',c2:'#6A1B9A',score:93,loc:'India',status:'Approved',badge:'&#127775;',sessions:8,isDummy:true,testSessions:8, email1:'suresh.iyer@sap.com', email2:'pooja.verma@sap.com', cats:['Strategy & Decisions','Career & Growth'], topics:'Decision-making in ambiguity, Strategic thinking for early career, Product roadmap evolution, Leadership transition frameworks, Stakeholder management, Innovation and risk appetite', tradTopics:['Decision-making in ambiguity','Leadership transition frameworks','Stakeholder management'], revTopics:['Strategic thinking for early career','Product roadmap evolution','Innovation and risk appetite']},
+  {idx:100,m1:'Aryan Kapoor',  m2:'Meera Nair',   i1:'AK',i2:'MN',c1:'#5C35CC',c2:'#E91E7A',score:88,loc:'India',status:'Approved',badge:'&#127775;',sessions:5,isDummy:true,testSessions:5, email1:'aryan.kapoor@sap.com', email2:'meera.nair@sap.com', cats:['AI & Technology','Career & Growth'], topics:'AI productivity tools, Async vs formal communication, Gen Z approach to problem solving, Career planning without a fixed roadmap, Building visibility at work, Strategic Thinking', tradTopics:['Career planning without a fixed roadmap','Building visibility at work','Strategic Thinking'], revTopics:['AI productivity tools','Async vs formal communication','Gen Z approach to problem solving']},
+  {idx:101,m1:'Kiran Patel',   m2:'Divya Reddy',  i1:'KP',i2:'DR',c1:'#00897B',c2:'#F57F17',score:76,loc:'India',status:'Approved',badge:'&#127775;',sessions:2,isDummy:true,testSessions:2, email1:'kiran.patel@sap.com', email2:'divya.reddy@sap.com', cats:['Communication','People & Culture'], topics:'Cross-generational communication styles, Building trust in new teams, Feedback culture across generations, Inclusive team dynamics, Active listening and empathy at work, Managing expectations across experience levels', tradTopics:['Building trust in new teams','Active listening and empathy at work','Managing expectations across experience levels'], revTopics:['Cross-generational communication styles','Feedback culture across generations','Inclusive team dynamics']},
+  {idx:102,m1:'Suresh Iyer',   m2:'Pooja Verma',  i1:'SI',i2:'PV',c1:'#1565C0',c2:'#6A1B9A',score:93,loc:'India',status:'Approved',badge:'&#127775;',sessions:6,isDummy:true,testSessions:6, email1:'suresh.iyer@sap.com', email2:'pooja.verma@sap.com', cats:['Strategy & Decisions','Career & Growth'], topics:'Decision-making in ambiguity, Strategic thinking for early career, Product roadmap evolution, Leadership transition frameworks, Stakeholder management, Innovation and risk appetite', tradTopics:['Decision-making in ambiguity','Leadership transition frameworks','Stakeholder management'], revTopics:['Strategic thinking for early career','Product roadmap evolution','Innovation and risk appetite']},
+  {idx:103,m1:'Ravi Sharma',   m2:'Tanvi Joshi',  i1:'RS',i2:'TJ',c1:'#D84315',c2:'#00695C',score:81,loc:'India',status:'Approved',badge:'&#127775;',sessions:3,isDummy:true,testSessions:3, email1:'ravi.sharma@sap.com', email2:'tanvi.joshi@sap.com', cats:['People & Culture','Communication'], topics:'Navigating hybrid work culture, Giving upward feedback, Personal branding in corporate, Emotional intelligence at work, Building cross-team relationships, Conflict resolution approaches', tradTopics:['Emotional intelligence at work','Building cross-team relationships','Conflict resolution approaches'], revTopics:['Navigating hybrid work culture','Giving upward feedback','Personal branding in corporate']},
 ];
 let DUMMY_PARTICIPANTS = [
   {name:'Aryan Kapoor', type:'experienced',email:'aryan.kapoor@sap.com', status:'Paired',loc:'India',isDummy:true},
@@ -1837,6 +1834,8 @@ let DUMMY_PARTICIPANTS = [
   {name:'Divya Reddy',  type:'early',      email:'divya.reddy@sap.com',  status:'Paired',loc:'India',isDummy:true},
   {name:'Suresh Iyer',  type:'experienced',email:'suresh.iyer@sap.com',  status:'Paired',loc:'India',isDummy:true},
   {name:'Pooja Verma',  type:'early',      email:'pooja.verma@sap.com',  status:'Paired',loc:'India',isDummy:true},
+  {name:'Ravi Sharma',  type:'experienced',email:'ravi.sharma@sap.com',  status:'Paired',loc:'India',isDummy:true},
+  {name:'Tanvi Joshi',  type:'early',      email:'tanvi.joshi@sap.com',  status:'Paired',loc:'India',isDummy:true},
 ];
 
 // Journey topics for dummy pairs (keyed by pair idx)
@@ -1845,16 +1844,17 @@ const DUMMY_PAIR_TOPICS = {
     {t:'AI productivity tools', done:true, notes:'Discussed ChatGPT, Copilot, Joule use cases', qs:[]},
     {t:'Async vs formal communication', done:true, notes:'Explored Slack culture vs formal emails', qs:[]},
     {t:'Gen Z approach to problem solving', done:true, notes:'Design thinking frameworks discussed', qs:[]},
-    {t:'Modern Learning Mindsets', done:false, notes:'', qs:[]},
     {t:'Career planning without a fixed roadmap', done:true, notes:'Shared career pivot stories', qs:[]},
     {t:'Building visibility at work', done:true, notes:'Tips on internal branding', qs:[]},
     {t:'Strategic Thinking', done:false, notes:'', qs:[]},
-    {t:'Executive Communication', done:false, notes:'', qs:[]},
   ],
   101: [
     {t:'Cross-generational communication styles', done:true, notes:'Identified key friction points', qs:[]},
-    {t:'Building trust in new teams', done:true, notes:'', qs:[]},
-    {t:'Feedback culture across generations', done:false, notes:'', qs:[]},
+    {t:'Feedback culture across generations', done:true, notes:'', qs:[]},
+    {t:'Inclusive team dynamics', done:false, notes:'', qs:[]},
+    {t:'Building trust in new teams', done:false, notes:'', qs:[]},
+    {t:'Active listening and empathy at work', done:false, notes:'', qs:[]},
+    {t:'Managing expectations across experience levels', done:false, notes:'', qs:[]},
   ],
   102: [
     {t:'Decision-making in ambiguity', done:true, notes:'Real project example walkthrough', qs:[]},
@@ -1863,6 +1863,14 @@ const DUMMY_PAIR_TOPICS = {
     {t:'Leadership transition frameworks', done:true, notes:'IC to manager transition', qs:[]},
     {t:'Stakeholder management', done:true, notes:'Influence without authority tactics', qs:[]},
     {t:'Innovation and risk appetite', done:true, notes:'', qs:[]},
+  ],
+  103: [
+    {t:'Navigating hybrid work culture', done:true, notes:'Discussed async collaboration norms', qs:[]},
+    {t:'Giving upward feedback', done:true, notes:'Practiced frameworks for constructive feedback', qs:[]},
+    {t:'Personal branding in corporate', done:true, notes:'LinkedIn and internal visibility tips', qs:[]},
+    {t:'Emotional intelligence at work', done:false, notes:'', qs:[]},
+    {t:'Building cross-team relationships', done:false, notes:'', qs:[]},
+    {t:'Conflict resolution approaches', done:false, notes:'', qs:[]},
   ]
 };
 
@@ -1997,20 +2005,20 @@ const PAIR_TOPICS = [
 
 const PAIRS = [
   {idx:0,m1:"Nitesh Agrawal",m2:"Rachel Negi",i1:"NA",i2:"RN",c1:"#1565C0",c2:"#C0392B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"nit.agrawal@sap.com",email2:"rachel.negi@sap.com",topics:"How Gen Z receives and processes feedback, AI as a self-learning and upskilling tool, Defining career success across generations, Stakeholder management and influencing without authority, Motivation engagement and attrition triggers, Digital collaboration habits and async communication",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Stakeholder management and influencing without authority","Motivation engagement and attrition triggers","Defining career success across generations"],revTopics:["How Gen Z receives and processes feedback","AI as a self-learning and upskilling tool","Digital collaboration habits and async communication"]},
-  {idx:1,m1:"Shambhav",m2:"Kabir Nasir",i1:"KS",i2:"KN",c1:"#2E7D32",c2:"#0070F2",score:95,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"k.shambhav@sap.com",email2:"kabir.nasir@sap.com",topics:"How fresh minds approach complex problems, AI tools in day-to-day work, Building credibility and influence as an individual contributor, Transitioning from IC to leadership roles, What creates genuine belonging for early talent",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["Building credibility and influence as an individual contributor","Transitioning from IC to leadership roles"],revTopics:["How fresh minds approach complex problems","AI tools in day-to-day work","What creates genuine belonging for early talent"]},
-  {idx:2,m1:"Lingraj B",m2:"Sreeranjini",i1:"LB",i2:"SR",c1:"#E65100",c2:"#16A085",score:92,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"lingraj.b.rudrawadi@sap.com",email2:"sreeranjini.s@sap.com",topics:"Evolution from waterfall to AI-era development, Applied AI and ML in real product work, Learning from failure and setbacks, Communication clarity across levels and generations, Cybersecurity and its strategic business implications",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions"],tradTopics:["Learning from failure and setbacks","Communication clarity across levels and generations","Cybersecurity and its strategic business implications"],revTopics:["Evolution from waterfall to AI-era development","Applied AI and ML in real product work"]},
-  {idx:3,m1:"Anupam Rajput",m2:"Harsha",i1:"AR",i2:"HA",c1:"#4527A0",c2:"#D35400",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anupam.rajput@sap.com",email2:"harsha.s.k@sap.com",topics:"AI productivity tools that work in practice, Setting boundaries and saying no effectively, Pitching and presenting ideas impactfully, Stress management and sustainable pace of work, Product development lifecycle end to end, Work-life balance across career stages",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions","Wellbeing"],tradTopics:["Setting boundaries and saying no effectively","Pitching and presenting ideas impactfully","Stress management and sustainable pace of work","Product development lifecycle end to end"],revTopics:["AI productivity tools that work in practice","Work-life balance across career stages"]},
+  {idx:1,m1:"Shambhav",m2:"Kabir Nasir",i1:"KS",i2:"KN",c1:"#2E7D32",c2:"#0070F2",score:95,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"k.shambhav@sap.com",email2:"kabir.nasir@sap.com",topics:"How fresh minds approach complex problems, AI tools in day-to-day work, Building credibility and influence as an individual contributor, Transitioning from IC to leadership roles, What creates genuine belonging for early talent, Navigating organisational culture as a newcomer",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["Building credibility and influence as an individual contributor","Transitioning from IC to leadership roles","Navigating organisational culture as a newcomer"],revTopics:["How fresh minds approach complex problems","AI tools in day-to-day work","What creates genuine belonging for early talent"]},
+  {idx:2,m1:"Lingraj B",m2:"Sreeranjini",i1:"LB",i2:"SR",c1:"#E65100",c2:"#16A085",score:92,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"lingraj.b.rudrawadi@sap.com",email2:"sreeranjini.s@sap.com",topics:"Evolution from waterfall to AI-era development, Applied AI and ML in real product work, Learning from failure and setbacks, Communication clarity across levels and generations, Cybersecurity and its strategic business implications, How Gen Z approaches technical learning",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions"],tradTopics:["Learning from failure and setbacks","Communication clarity across levels and generations","Cybersecurity and its strategic business implications"],revTopics:["Evolution from waterfall to AI-era development","Applied AI and ML in real product work","How Gen Z approaches technical learning"]},
+  {idx:3,m1:"Anupam Rajput",m2:"Harsha",i1:"AR",i2:"HA",c1:"#4527A0",c2:"#D35400",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anupam.rajput@sap.com",email2:"harsha.s.k@sap.com",topics:"AI productivity tools that work in practice, Setting boundaries and saying no effectively, Pitching and presenting ideas impactfully, Stress management and sustainable pace of work, Product development lifecycle end to end, Work-life balance across career stages",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions","Wellbeing"],tradTopics:["Setting boundaries and saying no effectively","Pitching and presenting ideas impactfully","Stress management and sustainable pace of work"],revTopics:["AI productivity tools that work in practice","Work-life balance across career stages","Product development lifecycle end to end"]},
   {idx:4,m1:"Anand K",m2:"Kislay",i1:"AK",i2:"KK",c1:"#0277BD",c2:"#7D3C98",score:91,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anand.k@sap.com",email2:"kislay.kumar@sap.com",topics:"How product roadmaps evolve with AI and market shifts, AI-assisted development and its impact on delivery, Customer centricity and escalation handling, Conditions that produce genuine out-of-the-box thinking, Career expectations vs organisational reality at SAP, Emerging tools and their viability at org level",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["How product roadmaps evolve with AI and market shifts","Customer centricity and escalation handling","Career expectations vs organisational reality at SAP"],revTopics:["AI-assisted development and its impact on delivery","Conditions that produce genuine out-of-the-box thinking","Emerging tools and their viability at org level"]},
-  {idx:5,m1:"Jhansi",m2:"Bhavika",i1:"JB",i2:"BH",c1:"#00695C",c2:"#2471A3",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"j.b@sap.com",email2:"bhavika@sap.com",topics:"How product strategy gets shaped at the business level, Connecting engineering decisions to customer and commercial outcomes, Real stories of near-misses and course corrections, Staying current with fast-moving technology, Navigating a role pivot, Life beyond work and its impact on performance",cats:["AI & Technology","Career & Growth","Strategy & Decisions","Wellbeing"],tradTopics:["How product strategy gets shaped at the business level","Connecting engineering decisions to customer and commercial outcomes","Real stories of near-misses and course corrections","Navigating a role pivot"],revTopics:["Staying current with fast-moving technology","Life beyond work and its impact on performance"]},
+  {idx:5,m1:"Jhansi",m2:"Bhavika",i1:"JB",i2:"BH",c1:"#00695C",c2:"#2471A3",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"j.b@sap.com",email2:"bhavika@sap.com",topics:"How product strategy gets shaped at the business level, Connecting engineering decisions to customer and commercial outcomes, Real stories of near-misses and course corrections, Staying current with fast-moving technology, Navigating a role pivot, Life beyond work and its impact on performance",cats:["AI & Technology","Career & Growth","Strategy & Decisions","Wellbeing"],tradTopics:["How product strategy gets shaped at the business level","Connecting engineering decisions to customer and commercial outcomes","Navigating a role pivot"],revTopics:["Staying current with fast-moving technology","Life beyond work and its impact on performance","Real stories of near-misses and course corrections"]},
   {idx:6,m1:"Sandhya Hariharan",m2:"Ritika",i1:"SH",i2:"RP",c1:"#AD1457",c2:"#1E8449",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"sandhya.hariharan@sap.com",email2:"ritika.pande@sap.com",topics:"How early talent perceives experienced managers, Technology upkeep for senior professionals, Career growth planning and focal points at different stages, Managing people and time effectively, Work-life balance across generations, Product management skills and decision-making",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["Career growth planning and focal points at different stages","Managing people and time effectively","Product management skills and decision-making"],revTopics:["How early talent perceives experienced managers","Technology upkeep for senior professionals","Work-life balance across generations"]},
-  {idx:7,m1:"Rupam",m2:"Anjana",i1:"RA",i2:"AM",c1:"#37474F",c2:"#CB4335",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"rupam.agarwalla@sap.com",email2:"anjana.ms@sap.com",topics:"AI and smart prompting in daily work, Decision-making frameworks in ambiguous situations, Building visibility and recognition at work, Career planning without a fixed roadmap, Handling difficult situations and conversations",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["Decision-making frameworks in ambiguous situations","Building visibility and recognition at work","Career planning without a fixed roadmap","Handling difficult situations and conversations"],revTopics:["AI and smart prompting in daily work"]},
-  {idx:8,m1:"Pavithra",m2:"Khitiz",i1:"PV",i2:"KA",c1:"#BF360C",c2:"#117A65",score:85,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"pavithra.veerabhadraiah@sap.com",email2:"khitiz.arya@sap.com",topics:"Evolving ways of working, Developing AI — new way of thinking, Redefining work-life balance",cats:["AI & Technology","Strategy & Decisions","Wellbeing"],tradTopics:["Evolving ways of working","Redefining work-life balance"],revTopics:["Developing AI — new way of thinking"]},
-  {idx:9,m1:"Raghav",m2:"Siju",i1:"RS",i2:"SP",c1:"#1B5E20",c2:"#1A5276",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"raghav.s@sap.com",email2:"s.pavithran@sap.com",topics:"Agentic AI and its practical applications, Gen Z mindset and what managers often misread, Charting a career path and staying relevant, Async vs formal communication styles, Personal branding and content creation at work, What leadership means to the new generation",cats:["AI & Technology","Career & Growth","Communication","People & Culture"],tradTopics:["Charting a career path and staying relevant","Async vs formal communication styles"],revTopics:["Agentic AI and its practical applications","Gen Z mindset and what managers often misread","Personal branding and content creation at work","What leadership means to the new generation"]},
-  {idx:10,m1:"Nagaraj",m2:"Sneha",i1:"NK",i2:"SN",c1:"#880E4F",c2:"#B7950B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"kishan.bhaskar.nagaraj@sap.com",email2:"s.kb@sap.com",topics:"What makes feedback actually land, How early talent learns fast, Big picture thinking and strategic context, Leadership and accountability in practice, Ground-level challenges that don’t reach leadership, New technology and developer productivity",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Big picture thinking and strategic context","Leadership and accountability in practice"],revTopics:["What makes feedback actually land","How early talent learns fast","Ground-level challenges that don’t reach leadership","New technology and developer productivity"]},
+  {idx:7,m1:"Rupam",m2:"Anjana",i1:"RA",i2:"AM",c1:"#37474F",c2:"#CB4335",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"rupam.agarwalla@sap.com",email2:"anjana.ms@sap.com",topics:"AI and smart prompting in daily work, Decision-making frameworks in ambiguous situations, Building visibility and recognition at work, Career planning without a fixed roadmap, Handling difficult situations and conversations, Self-learning with modern AI tools",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["Decision-making frameworks in ambiguous situations","Building visibility and recognition at work","Career planning without a fixed roadmap"],revTopics:["AI and smart prompting in daily work","Self-learning with modern AI tools","Handling difficult situations and conversations"]},
+  {idx:8,m1:"Pavithra",m2:"Khitiz",i1:"PV",i2:"KA",c1:"#BF360C",c2:"#117A65",score:85,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"pavithra.veerabhadraiah@sap.com",email2:"khitiz.arya@sap.com",topics:"Evolving ways of working, Developing AI — new way of thinking, Redefining work-life balance, AI-driven automation in daily workflows, Sustainable productivity and avoiding burnout, Building adaptability in fast-changing environments",cats:["AI & Technology","Strategy & Decisions","Wellbeing"],tradTopics:["Evolving ways of working","Sustainable productivity and avoiding burnout","Building adaptability in fast-changing environments"],revTopics:["Developing AI — new way of thinking","AI-driven automation in daily workflows","Redefining work-life balance"]},
+  {idx:9,m1:"Raghav",m2:"Siju",i1:"RS",i2:"SP",c1:"#1B5E20",c2:"#1A5276",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"raghav.s@sap.com",email2:"s.pavithran@sap.com",topics:"Agentic AI and its practical applications, Gen Z mindset and what managers often misread, Charting a career path and staying relevant, Async vs formal communication styles, Personal branding and content creation at work, What leadership means to the new generation",cats:["AI & Technology","Career & Growth","Communication","People & Culture"],tradTopics:["Charting a career path and staying relevant","Async vs formal communication styles","What leadership means to the new generation"],revTopics:["Agentic AI and its practical applications","Gen Z mindset and what managers often misread","Personal branding and content creation at work"]},
+  {idx:10,m1:"Nagaraj",m2:"Sneha",i1:"NK",i2:"SN",c1:"#880E4F",c2:"#B7950B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"kishan.bhaskar.nagaraj@sap.com",email2:"s.kb@sap.com",topics:"What makes feedback actually land, How early talent learns fast, Big picture thinking and strategic context, Leadership and accountability in practice, Ground-level challenges that don’t reach leadership, New technology and developer productivity",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Big picture thinking and strategic context","Leadership and accountability in practice","Ground-level challenges that don’t reach leadership"],revTopics:["What makes feedback actually land","How early talent learns fast","New technology and developer productivity"]},
   {idx:11,m1:"Vivek Vadiraj",m2:"Abhishek Bantiya",i1:"VV",i2:"AB",c1:"#1A237E",c2:"#6C3483",score:91,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"vivek.vadiraj@sap.com",email2:"abhishek.bantiya@sap.com",topics:"What changes when moving from IC to people leader, Problem discovery and ideation approaches, Prioritisation under pressure, Self-learning through AI and modern platforms, Building professional relationships and networks, Gamification and making work more engaging",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["What changes when moving from IC to people leader","Prioritisation under pressure","Building professional relationships and networks"],revTopics:["Problem discovery and ideation approaches","Self-learning through AI and modern platforms","Gamification and making work more engaging"]},
-  {idx:12,m1:"Ambika KV",m2:"Ataa",i1:"AV",i2:"AT",c1:"#6A1B9A",c2:"#0E6655",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"ambika.kv@sap.com",email2:"mohd.ataa.khan@sap.com",topics:"High-pressure decision-making with incomplete information, Influencing without authority, Long-term career paths at SAP, What the early talent experience really looks like, Challenging existing products code and workflows constructively",cats:["Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["High-pressure decision-making with incomplete information","Influencing without authority","Long-term career paths at SAP"],revTopics:["What the early talent experience really looks like","Challenging existing products code and workflows constructively"]},
-  {idx:13,m1:"Akshay Sureshchand",m2:"Shubh",i1:"AC",i2:"SS",c1:"#004D40",c2:"#33691E",score:98,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"akshay.sureshchand@sap.com",email2:"shubh.srivastava@sap.com",topics:"How Gen Z learns and upskills in an AI world, AI experimentation and adoption mindset, What makes someone an effective team player, Self-directed learning and side projects, Workplace expectations around flexibility and feedback, Decision-making in complex and uncertain situations",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["What makes someone an effective team player","Decision-making in complex and uncertain situations"],revTopics:["How Gen Z learns and upskills in an AI world","AI experimentation and adoption mindset","Self-directed learning and side projects","Workplace expectations around flexibility and feedback"]},
-  {idx:14,m1:"Priyanka Singh",m2:"Ansh",i1:"PR",i2:"AN",c1:"#C0392B",c2:"#BF360C",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"priyanka.singh02@sap.com",email2:"ansh.bomb@sap.com",topics:"Navigating ambiguity and evolving roles, Communication styles and expectations across generations, Psychological safety in teams, Moving from task execution to ownership, How strategic decisions get made at SAP, Clarity in communication and learning agility",cats:["Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Navigating ambiguity and evolving roles","Psychological safety in teams","Moving from task execution to ownership","How strategic decisions get made at SAP"],revTopics:["Communication styles and expectations across generations","Clarity in communication and learning agility"]},
+  {idx:12,m1:"Ambika KV",m2:"Ataa",i1:"AV",i2:"AT",c1:"#6A1B9A",c2:"#0E6655",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"ambika.kv@sap.com",email2:"mohd.ataa.khan@sap.com",topics:"High-pressure decision-making with incomplete information, Influencing without authority, Long-term career paths at SAP, What the early talent experience really looks like, Challenging existing products code and workflows constructively, Fresh perspectives on legacy systems and processes",cats:["Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["High-pressure decision-making with incomplete information","Influencing without authority","Long-term career paths at SAP"],revTopics:["What the early talent experience really looks like","Challenging existing products code and workflows constructively","Fresh perspectives on legacy systems and processes"]},
+  {idx:13,m1:"Akshay Sureshchand",m2:"Shubh",i1:"AC",i2:"SS",c1:"#004D40",c2:"#33691E",score:98,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"akshay.sureshchand@sap.com",email2:"shubh.srivastava@sap.com",topics:"How Gen Z learns and upskills in an AI world, AI experimentation and adoption mindset, What makes someone an effective team player, Self-directed learning and side projects, Workplace expectations around flexibility and feedback, Decision-making in complex and uncertain situations",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["What makes someone an effective team player","Decision-making in complex and uncertain situations","Workplace expectations around flexibility and feedback"],revTopics:["How Gen Z learns and upskills in an AI world","AI experimentation and adoption mindset","Self-directed learning and side projects"]},
+  {idx:14,m1:"Priyanka Singh",m2:"Ansh",i1:"PR",i2:"AN",c1:"#C0392B",c2:"#BF360C",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"priyanka.singh02@sap.com",email2:"ansh.bomb@sap.com",topics:"Navigating ambiguity and evolving roles, Communication styles and expectations across generations, Psychological safety in teams, Moving from task execution to ownership, How strategic decisions get made at SAP, Clarity in communication and learning agility",cats:["Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Navigating ambiguity and evolving roles","Psychological safety in teams","How strategic decisions get made at SAP"],revTopics:["Communication styles and expectations across generations","Clarity in communication and learning agility","Moving from task execution to ownership"]},
 ];
 
 const SESSIONS = [
@@ -2075,7 +2083,7 @@ Your personalised curriculum has been generated based on both your pre-programme
   4. [TRAD TOPIC 4]
 
 \uD83D\uDCC5 Programme Duration: 3 months (July \u2013 September 2026)
-\uD83C\uDFAF Goal: Complete all 8 sessions and climb the leaderboard!
+\uD83C\uDFAF Goal: Complete all 6 sessions and climb the leaderboard!
 
 Next Steps:
   1. Introduce yourself to your partner via Teams or email.
@@ -2105,7 +2113,7 @@ SAP India \u2014 Cross-Generational Mentoring`
 Congratulations — your mentoring pair has been officially approved and your 3-month journey starts today!
 
 \uD83E\uDD1D Your Partner: [PARTNER NAME]
-\uD83D\uDCCB Your Curriculum: 8 personalised topics (4 Reverse + 4 Traditional Mentoring)
+\uD83D\uDCCB Your Curriculum: 6 personalised topics (3 Reverse + 3 Traditional Mentoring)
 \uD83D\uDCC5 Programme Duration: [START DATE] to [END DATE]
 
 Getting started — 3 easy steps:
@@ -2232,9 +2240,9 @@ const FAQS = [
   {q:"How often should we meet?",a:"A minimum of 2 sessions per month (45–60 minutes each) is expected. More frequent, shorter sessions are also encouraged. Focus on quality — ensure both participants leave each session with clear action items and a scheduled next meeting."},
   {q:"What if we are in different cities?",a:"All sessions can be conducted virtually via Microsoft Teams. Pairs in the same city are encouraged to meet in person at least once during the 3-month program. The platform’s Schedule feature provides Outlook integration for easy calendar booking."},
   {q:"How are points and the leaderboard calculated?",a:"Meeting Frequency (40 pts): 10 points per logged session, maximum 4 per month. Session Progress (35 pts): curriculum topic completion and resource sharing. Reflection Score (25 pts): quality and consistency of post-session feedback. The leaderboard refreshes monthly."},
-  {q:"What topics should we cover?",a:"Each pair has a personalised 8-topic curriculum generated from pre-programme interviews: 4 Reverse Mentoring topics (AI & GenAI Tools, Digital Trends, Collaboration Tools, Emerging Workplace Expectations) and 4 Traditional Mentoring topics (Stakeholder Management, Executive Communication, Career Navigation at SAP, Strategic Thinking). Custom topics can also be added."},
+  {q:"What topics should we cover?",a:"Each pair has a personalised 6-topic curriculum generated from pre-programme interviews: 3 Reverse Mentoring topics (facilitated by Early Talent) and 3 Traditional Mentoring topics (facilitated by Experienced Talent). Custom topics can also be added."},
   {q:"When does the pilot start and how long does it run?",a:"The pilot is currently in the pre-launch phase. All 15 pairs are pending admin approval. Once approved, the programme runs for 3 months. Kick-off communications will be sent by the programme team upon approval. Watch this space for updates."},
-  {q:"Can we request a change of pair?",a:"Pair changes are possible within the first 2 weeks after the pilot launches. Submit your request with a reason to the programme team (Manimoy Biswas — Lead, Priyanga Balamurugan — Co-Lead). After week 2, changes require VP-level approval."},
+  {q:"Can we request a change of pair?",a:"Pair changes are possible within the first 2 weeks of the launch. To modify any pair, reach out to <a href='mailto:IndiaHR@sap.com' style='color:#0070F2;font-weight:600'>IndiaHR@sap.com</a>. After 2 weeks, pair revision is not possible."},
   {q:"How is recognition awarded?",a:"The top 3 pairs at Pilot Closure receive public recognition at the SAP India event, personalised certificates, gifts, and a feature in the company success story series. Points reset monthly, so sustained effort throughout the programme is rewarded."},
   {q:"Who do I contact for programme support?",a:"For any questions or support, reach out to IndiaHR@sap.com."},
 ];
@@ -2243,47 +2251,45 @@ const REVERSE_TOPICS = [
   {title:"AI &amp; GenAI Tools",desc:"SAP AI Core, Copilot, Joule, generative AI use cases in enterprise workflows",wk:"Week 1-2",done:false,facilitator:"early"},
   {title:"Digital Trends &amp; Social Platforms",desc:"LinkedIn, content creation, personal branding, async-first communication",wk:"Week 3-4",done:false,facilitator:"early"},
   {title:"Modern Collaboration Tools",desc:"SAP Jam, Miro, Notion, Teams integrations, remote-first facilitation",wk:"Week 5-6",done:false,facilitator:"early"},
-  {title:"Emerging Workplace Expectations",desc:"Flexibility, purpose-driven work, Gen Z & Millennial workplace values",wk:"Week 7-8",done:false,facilitator:"early"},
 ];
 
 const TRAD_TOPICS = [
   {title:"Stakeholder Management",desc:"Mapping stakeholders, building influence without authority, executive alignment",wk:"Week 1-2",done:false,facilitator:"experienced"},
   {title:"Executive Communication",desc:"Structured communication upward, deck design for leadership, elevator pitch",wk:"Week 3-4",done:false,facilitator:"experienced"},
   {title:"Career Navigation at SAP",desc:"Band progression, key experiences, mentors vs sponsors, visibility strategies",wk:"Week 5-6",done:false,facilitator:"experienced"},
-  {title:"Strategic Thinking",desc:"SAP business model, P&L understanding, positioning within the ecosystem",wk:"Week 7-8",done:false,facilitator:"experienced"},
 ];
 
 const PAIR_JOURNEY = [
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 0  Nitesh Agrawal & Rachel Negi
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 1  Shambhav & Kabir Nasir
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 2  Lingraj B & Sreeranjini
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 3  Anupam Rajput & Harsha
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 4  Anand K & Kislay
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 5  Jhansi & Bhavika
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 6  Sandhya Hariharan & Ritika
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 7  Rupam & Anjana
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 8  Pavithra & Khitiz
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 9  Raghav & Siju
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 10 Nagaraj & Sneha
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 11 Vivek Vadiraj & Abhishek Bantiya
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 12 Ambika KV & Ataa
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 13 Akshay Sureshchand & Shubh Srivastava
-  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false,false],tradDone:[false,false,false,false]},   // 14 Priyanka Singh & Ansh
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 0  Nitesh Agrawal & Rachel Negi
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 1  Shambhav & Kabir Nasir
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 2  Lingraj B & Sreeranjini
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 3  Anupam Rajput & Harsha
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 4  Anand K & Kislay
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 5  Jhansi & Bhavika
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 6  Sandhya Hariharan & Ritika
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 7  Rupam & Anjana
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 8  Pavithra & Khitiz
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 9  Raghav & Siju
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 10 Nagaraj & Sneha
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 11 Vivek Vadiraj & Abhishek Bantiya
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 12 Ambika KV & Ataa
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 13 Akshay Sureshchand & Shubh Srivastava
+  {sessions:0,topics:0,resources:0,engagement:"0%",revDone:[false,false,false],tradDone:[false,false,false]},   // 14 Priyanka Singh & Ansh
 ];
 
 // ── Initialize PAIR_JOURNEY entries for dummy pairs (sync checkboxes with DUMMY_PAIR_TOPICS) ──
 DUMMY_PAIRS.forEach(dp => {
   const topics = DUMMY_PAIR_TOPICS[dp.idx] || [];
-  const revDone = [false, false, false, false];
-  const tradDone = [false, false, false, false];
+  const revDone = [false, false, false];
+  const tradDone = [false, false, false];
   const revArr = dp.revTopics || [];
   const tradArr = dp.tradTopics || [];
   topics.forEach(topic => {
     if (!topic.done) return;
     const ri = revArr.indexOf(topic.t);
-    if (ri >= 0 && ri < 4) { revDone[ri] = true; return; }
+    if (ri >= 0 && ri < 3) { revDone[ri] = true; return; }
     const ti = tradArr.indexOf(topic.t);
-    if (ti >= 0 && ti < 4) { tradDone[ti] = true; }
+    if (ti >= 0 && ti < 3) { tradDone[ti] = true; }
   });
   const doneCount = topics.filter(t => t.done).length;
   PAIR_JOURNEY[dp.idx] = {
@@ -2405,8 +2411,8 @@ const chatBotResponses = {
   "how do i schedule": "Use the Schedule button in the Journey Tracker to open Outlook calendar scheduling. It pre-populates a meeting invite with your pair\u2019s name and a suggested agenda. You can edit before sending.",
   "schedule":          "Use the Schedule button in the Journey Tracker to create an Outlook calendar invite for your next session. It pre-fills your pair details and a suggested agenda.",
   "outlook":           "The portal integrates with Outlook via the Schedule button in the Journey Tracker. Click it to generate a calendar invite pre-populated with your pair\u2019s name and session agenda template.",
-  "how does the curriculum": "Each pair has a personalised 8-topic curriculum: 4 Reverse Mentoring topics (AI &amp; GenAI Tools, Digital Trends, Collaboration Tools, Workplace Expectations) and 4 Traditional Mentoring topics (Stakeholder Management, Executive Communication, Career Navigation, Strategic Thinking). Click a topic to mark it complete and log the session.",
-  "curriculum":        "Each pair has a personalised 8-topic curriculum generated from pre-programme interviews. Topics are split equally between Reverse and Traditional Mentoring. Click any topic to mark it done and record the session details.",
+  "how does the curriculum": "Each pair has a personalised 6-topic curriculum: 3 Reverse Mentoring topics (facilitated by Early Talent) and 3 Traditional Mentoring topics (facilitated by Experienced Talent). Click a topic to mark it complete and log the session.",
+  "curriculum":        "Each pair has a personalised 6-topic curriculum generated from pre-programme interviews. Topics are split equally between Reverse (3 topics led by Early Talent) and Traditional Mentoring (3 topics led by Experienced Talent). Click any topic to mark it done and record the session details.",
   "reverse":           "Reverse Mentoring topics are led by the younger/early-career participant. Core topics: AI &amp; GenAI Tools, Digital Trends &amp; Social Platforms, Modern Collaboration Tools, Emerging Workplace Expectations. Topics are drawn from interview data for each pair.",
   "traditional":       "Traditional Mentoring topics are led by the experienced participant. Core topics: Stakeholder Management, Executive Communication, Career Navigation at SAP, Strategic Thinking. Each pair\u2019s descriptions are personalised from pre-programme interviews.",
   "genai":             "Top GenAI topics for reverse mentoring: SAP Joule demos, AI Core API walkthroughs, generative AI use cases in S/4HANA, Copilot integrations, and comparing enterprise AI tools. 11 of 15 pairs listed AI &amp; GenAI as a top interest.",
@@ -2415,9 +2421,9 @@ const chatBotResponses = {
   "recognition":       "Top 3 pairs at Pilot Closure receive public recognition at the SAP India event, personalised certificates, gifts, and a feature in the company success story series. Points reset each month.",
   "repository":        "The Shared Repository (page 3) is a per-pair space to upload, download, and share files. Supported types include PDFs, Word docs, Excel files, images, and more. Files are visible to both pair members.",
   "upload":            "To upload a file: go to the Shared Repository (page 3), ensure your pair is selected, click \u201cUpload Files\u201d, and select your file. It will be available for both pair members to download.",
-  "who is on the program team contact": "Programme team: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). Design &amp; curriculum: Rishabh Tripathi (Bridge Forum Lead), Shweta Mohanty (HR Head).",
-  "contact":           "Programme team: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). For curriculum/design questions: Rishabh Tripathi or Shweta Mohanty.",
-  "team":              "The programme is run by: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). Bridge Forum Lead: Rishabh Tripathi. HR Head: Shweta Mohanty.",
+  "who is on the program team contact": "Programme team: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). For any questions, reach out to IndiaHR@sap.com.",
+  "contact":           "Programme team: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). For any questions, reach out to IndiaHR@sap.com.",
+  "team":              "The programme is run by: Manimoy Biswas (Lead), Priyanga Balamurugan (Co-Lead), Surabhi Sethi (PMO), Aakriti Sharma (SAP Academy), Rachita Sreedasyam (VT STAR), Benjin Samuel (PMO). For any questions, reach out to IndiaHR@sap.com.",
   "pair status":       "All 15 pairs are currently Pending admin approval. Once approved, you will receive a kick-off communication and the pilot officially begins. Check the Journey Tracker for your pair\u2019s current status.",
   "pair":              "There are 15 AI-generated pairs in this pilot. Each pair has a compatibility score (avg 93.5%), a personalised curriculum, and a shared resource repository. All pairs are currently pending admin review.",
   "program":           "The SAP Cross-Generational Mentoring Pilot pairs 15 mentor-mentee pairs across SAP India locations. The 3-month programme covers Reverse and Traditional Mentoring, with monthly leaderboard recognition. All pairs are currently pending kick-off approval.",
@@ -2596,9 +2602,9 @@ function renderPairs() {
       <div style="padding:12px 14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
           ${statusBadge}
-          <span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>${(p.topics||'').split(",").filter(Boolean).length} topics</span>
+          <span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>6 topics</span>
         </div>
-        <p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.topics||''}">${(p.topics||'').split(",").slice(0,2).map(t=>t.trim()).filter(Boolean).join(" &middot; ") || '<em>No topics assigned</em>'}</p>
+        <p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(function(){ const c=generatePairCurriculum(p.idx); return c.rev.concat(c.trad).map(t=>t.title).join(', '); })()}">${(function(){ const c=generatePairCurriculum(p.idx); return c.rev.slice(0,1).concat(c.trad.slice(0,1)).map(t=>t.title).join(' &middot; '); })() || '<em>No topics assigned</em>'}</p>
         <div style="display:flex;gap:6px;align-items:center">
           <button class="btn bg2 sm" style="flex:1;font-size:11px" onclick="showPairDetail(${p.idx})"><i class="fas fa-eye"></i> Details</button>
           ${adminBtns}
@@ -2680,6 +2686,7 @@ function showPairDetail(idx) {
 
 function toggleApprovePair(idx) {
   const p = PAIRS[idx];
+  if (!p) { console.error('[FB] toggleApprovePair: PAIRS['+idx+'] is undefined!'); return; }
   if (p.status === "Approved") {
     p.status = "Pending";
     showToast(`Pair ${p.m1} & ${p.m2} unapproved and set back to Pending.`);
@@ -2773,8 +2780,8 @@ function repairPair(idx) {
     p.status = "Pending"; q.status = "Pending";
     p.topics = pairTopicLabel(p); q.topics = pairTopicLabel(q);
     // Reset PAIR_JOURNEY completion state — the new pairing hasn't covered any topics yet
-    if (PAIR_JOURNEY[p.idx]) { PAIR_JOURNEY[p.idx].revDone  = [false,false,false,false]; PAIR_JOURNEY[p.idx].tradDone = [false,false,false,false]; }
-    if (PAIR_JOURNEY[q.idx]) { PAIR_JOURNEY[q.idx].revDone  = [false,false,false,false]; PAIR_JOURNEY[q.idx].tradDone = [false,false,false,false]; }
+    if (PAIR_JOURNEY[p.idx]) { PAIR_JOURNEY[p.idx].revDone  = [false,false,false]; PAIR_JOURNEY[p.idx].tradDone = [false,false,false]; }
+    if (PAIR_JOURNEY[q.idx]) { PAIR_JOURNEY[q.idx].revDone  = [false,false,false]; PAIR_JOURNEY[q.idx].tradDone = [false,false,false]; }
     showToast(`Re-paired: ${p.m1} ↔ ${p.m2} (${newScore}%) and ${q.m1} ↔ ${q.m2} (${newQScore}%) — improved by +${bestGain} topic points.`);
     logActivity(`Re-paired: <strong>${p.m1} &amp; ${p.m2}</strong> (${newScore}%) ↔ swapped with <strong>${q.m1} &amp; ${q.m2}</strong> (${newQScore}%). +${bestGain} topic gain.`, "fas fa-random", "#7B1FA2");
   } else {
@@ -2844,8 +2851,8 @@ function generateRePairing() {
           [p.earlyImpart, q.earlyImpart] = [q.earlyImpart, p.earlyImpart];
           [p.revTopics,   q.revTopics]   = [q.revTopics,   p.revTopics];
           // Reset PAIR_JOURNEY completion state for both re-paired pairs
-          if (PAIR_JOURNEY[p.idx]) { PAIR_JOURNEY[p.idx].revDone  = [false,false,false,false]; PAIR_JOURNEY[p.idx].tradDone = [false,false,false,false]; }
-          if (PAIR_JOURNEY[q.idx]) { PAIR_JOURNEY[q.idx].revDone  = [false,false,false,false]; PAIR_JOURNEY[q.idx].tradDone = [false,false,false,false]; }
+          if (PAIR_JOURNEY[p.idx]) { PAIR_JOURNEY[p.idx].revDone  = [false,false,false]; PAIR_JOURNEY[p.idx].tradDone = [false,false,false]; }
+          if (PAIR_JOURNEY[q.idx]) { PAIR_JOURNEY[q.idx].revDone  = [false,false,false]; PAIR_JOURNEY[q.idx].tradDone = [false,false,false]; }
           totalSwaps++;
           improved = true;
         }
@@ -2974,30 +2981,72 @@ function toTopicTitle(s) {
 function generatePairCurriculum(pairIdx) {
   const p = PAIRS[pairIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === pairIdx));
   if (!p) return {rev:[], trad:[]};
-  const weeks = ["Week 1-2","Week 3-4","Week 5-6","Week 7-8"];
+  const weeks = ["Week 1-2","Week 3-4","Week 5-6"];
 
-  const FALLBACK_REV  = ["AI & Modern Tools", "Digital-first Working", "Generational Perspectives", "Modern Learning Mindsets"];
-  const FALLBACK_TRAD = ["Career Navigation at SAP", "Stakeholder Management", "Strategic Thinking", "Executive Communication"];
-
-  // ── SEMANTIC topic split: tradTopics / revTopics from PAIRS data ────────────
-  // Traditional (experienced leads): SAP experience, career, strategy, leadership
-  // Reverse     (early talent leads): AI, Gen Z perspective, modern tools, digital-native
-  // Falls back to positional half-split if pair-level arrays are absent.
+  // ── Collect all available topics from pair data ────────────────────────────
   const allTopics  = p.topics ? p.topics.split(", ").map(t => t.trim()).filter(Boolean) : [];
-  const half       = Math.ceil(allTopics.length / 2);
-  const topicsTrad = allTopics.slice(0, half);
-  const topicsRev  = allTopics.slice(half);
 
-  // ── REVERSE MENTORING (Early Talent facilitates) ──────────────────────────
+  // ── REVERSE MENTORING source (Early Talent facilitates) ───────────────────
   let revRaw = (p.revTopics && p.revTopics.length >= 1)
-               ? p.revTopics
+               ? [...p.revTopics]
                : (() => {
                    let r = parseCurriculumItems(p.earlyImpart);
                    if (r.length < 2) r = parseCurriculumItems(p.expLearn);
-                   if (r.length < 1) r = topicsRev;
                    return r;
                  })();
 
+  // ── TRADITIONAL MENTORING source (Experienced facilitates) ────────────────
+  let tradRaw = (p.tradTopics && p.tradTopics.length >= 1)
+                ? [...p.tradTopics]
+                : (() => {
+                    let r = parseCurriculumItems(p.earlyLearn);
+                    if (r.length < 2) r = parseCurriculumItems(p.expImpart);
+                    return r;
+                  })();
+
+  // ── Pad to 3 each: borrow overflow from the other side, then from allTopics ─
+  const usedSet = new Set([...revRaw.slice(0,3), ...tradRaw.slice(0,3)]);
+
+  // If rev needs more, take from trad overflow (items beyond index 2)
+  if (revRaw.length < 3 && tradRaw.length > 3) {
+    const overflow = tradRaw.slice(3);
+    while (revRaw.length < 3 && overflow.length > 0) {
+      const t = overflow.shift();
+      revRaw.push(t);
+      usedSet.add(t);
+    }
+  }
+  // If trad needs more, take from rev overflow (items beyond index 2)
+  if (tradRaw.length < 3 && revRaw.length > 3) {
+    const overflow = revRaw.slice(3);
+    while (tradRaw.length < 3 && overflow.length > 0) {
+      const t = overflow.shift();
+      tradRaw.push(t);
+      usedSet.add(t);
+    }
+  }
+  // If still short, pull from allTopics not yet used
+  if (revRaw.length < 3) {
+    const remaining = allTopics.filter(t => !usedSet.has(t));
+    while (revRaw.length < 3 && remaining.length > 0) {
+      const t = remaining.shift();
+      revRaw.push(t);
+      usedSet.add(t);
+    }
+  }
+  if (tradRaw.length < 3) {
+    const remaining = allTopics.filter(t => !usedSet.has(t));
+    while (tradRaw.length < 3 && remaining.length > 0) {
+      const t = remaining.shift();
+      tradRaw.push(t);
+      usedSet.add(t);
+    }
+  }
+  // Last resort fallback (should never trigger — all pairs have 3+3 topics in data)
+  const FALLBACK_REV  = ["Reverse Mentoring Session", "Reverse Mentoring Session", "Reverse Mentoring Session"];
+  const FALLBACK_TRAD = ["Traditional Mentoring Session", "Traditional Mentoring Session", "Traditional Mentoring Session"];
+
+  // ── Build REVERSE topics array ────────────────────────────────────────────
   const rev = weeks.map((wk, i) => {
     const rawTitle    = revRaw[i] || FALLBACK_REV[i];
     const title       = toTopicTitle(rawTitle);
@@ -3011,16 +3060,7 @@ function generatePairCurriculum(pairIdx) {
     return {title, desc, wk, facilitator:"early"};
   });
 
-  // ── TRADITIONAL MENTORING (Experienced facilitates) ──────────────────────
-  let tradRaw = (p.tradTopics && p.tradTopics.length >= 1)
-                ? p.tradTopics
-                : (() => {
-                    let r = parseCurriculumItems(p.earlyLearn);
-                    if (r.length < 2) r = parseCurriculumItems(p.expImpart);
-                    if (r.length < 1) r = topicsTrad;
-                    return r;
-                  })();
-
+  // ── Build TRADITIONAL topics array ────────────────────────────────────────
   const trad = weeks.map((wk, i) => {
     const rawTitle   = tradRaw[i] || FALLBACK_TRAD[i];
     const title      = toTopicTitle(rawTitle);
@@ -3202,7 +3242,7 @@ function updateJourneyKPIs() {
   const jeEl = document.getElementById("je");
   if (jsEl) jsEl.textContent = doneSessions;
   if (jtEl) jtEl.textContent = doneTopics;
-  const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 8);
+  const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 6);
   // For dummy pairs, show assigned topic count (same as engagement denominator) for consistency
   let displayTotal = totalTopics;
   if (_dp && typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[currentJourneyIdx] && DUMMY_PAIR_TOPICS[currentJourneyIdx].length > 0) {
@@ -3533,7 +3573,7 @@ function renderCompChart() {
   const pj = PAIR_JOURNEY[currentJourneyIdx] || { revDone:[], tradDone:[] };
   const _dp = typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx);
   const doneTopics = (pj.revDone || []).filter(Boolean).length + (pj.tradDone || []).filter(Boolean).length;
-  const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 8);
+  const totalTopics = (currentPairCurriculum ? ((currentPairCurriculum.rev||[]).length + (currentPairCurriculum.trad||[]).length) : 6);
   let totalPlanned = totalTopics || 1;
   if (_dp && typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[currentJourneyIdx] && DUMMY_PAIR_TOPICS[currentJourneyIdx].length > 0) {
     totalPlanned = DUMMY_PAIR_TOPICS[currentJourneyIdx].length;
@@ -3570,8 +3610,8 @@ function getPairScore(pairIdx) {
     const totalSess = ps.length + baseline;
     let assignedTopics = (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[pairIdx])
       ? DUMMY_PAIR_TOPICS[pairIdx].length : 0;
-    // Fallback: if no topics explicitly assigned, use standard curriculum size (4 rev + 4 trad = 8)
-    if (assignedTopics === 0) assignedTopics = 8;
+    // Fallback: if no topics explicitly assigned, use standard curriculum size (3 rev + 3 trad = 6)
+    if (assignedTopics === 0) assignedTopics = 6;
     if (totalSess === 0) return { meetings: 0, session: 0, refl: 0 };
     const completionRatio = Math.min(totalSess / assignedTopics, 1);
     const meetings = Math.round(completionRatio * 40);
@@ -4113,7 +4153,7 @@ function renderInsightCharts() {
 
   // Live-compute and update p5 dynamic KPIs
   (function() {
-    const totalTopicsPerPair = 8;
+    const totalTopicsPerPair = 6;
     let totalTopicsDone = 0;
     // Only count real pairs (indices 0..PAIRS.length-1), not dummy pair entries at idx 100+
     for (let i = 0; i < PAIRS.length; i++) {
@@ -5413,7 +5453,7 @@ function saveAssignTopics(pairIdx) {
     pair.tradTopics = lines.filter((_, i) => i % 2 === 1);
   }
   // Reinitialize PAIR_JOURNEY for this pair (reset all checkboxes since topics changed)
-  PAIR_JOURNEY[pairIdx] = {sessions:0, topics:0, resources:0, engagement:"0%", revDone:[false,false,false,false], tradDone:[false,false,false,false]};
+  PAIR_JOURNEY[pairIdx] = {sessions:0, topics:0, resources:0, engagement:"0%", revDone:[false,false,false], tradDone:[false,false,false]};
   // Refresh
   renderPairs();
   // Reset journey dropdown so it picks up new topics

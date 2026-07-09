@@ -393,6 +393,20 @@ body.role-participant #p1-participant-hero { display: block !important; }
     </div>
   </div>
 
+  <!-- NPS Survey Notification Banner (participant-only, shown when survey is active) -->
+  <div id="nps-participant-banner" class="participant-only" style="display:none;align-items:center;gap:12px;padding:12px 16px;margin-bottom:16px;border-radius:8px;background:linear-gradient(135deg,#F3E5F5 0%,#EDE7F6 100%);border:1.5px solid #7B1FA2;cursor:pointer;transition:box-shadow .2s" onclick="showNPSSurvey()" onmouseover="this.style.boxShadow='0 2px 12px rgba(123,31,162,.18)'" onmouseout="this.style.boxShadow='none'">
+    <div style="width:38px;height:38px;border-radius:50%;background:#fff;border:2px solid #7B1FA2;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <i class="fas fa-poll" style="color:#7B1FA2;font-size:15px"></i>
+    </div>
+    <div style="flex:1;min-width:0">
+      <p style="font-size:13px;font-weight:700;color:#4A148C;margin-bottom:2px">Program Feedback Survey</p>
+      <p style="font-size:11.5px;color:#6A1B9A;line-height:1.4">Please share your feedback on the Cross-Generational Mentoring program. Submit by <strong>30 September 2026</strong>.</p>
+    </div>
+    <button class="btn" style="background:#7B1FA2;border-color:#7B1FA2;color:#fff;font-size:12px;padding:7px 14px;flex-shrink:0;gap:6px" onclick="event.stopPropagation();showNPSSurvey()">
+      <i class="fas fa-paper-plane"></i> Fill Survey
+    </button>
+  </div>
+
   <!-- Journey KPIs -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:20px">
     <div class="kpi"><p style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ts)">Sessions Done</p><p id="js" style="font-size:28px;font-weight:900;color:#0070F2;margin-top:4px">0</p><p style="font-size:11px;color:var(--ts);margin-top:2px">of planned</p></div>
@@ -919,7 +933,7 @@ body.role-participant #p1-participant-hero { display: block !important; }
       style="border:2px dashed var(--bd);border-radius:10px;padding:26px 16px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:var(--pb);margin-bottom:14px">
       <i class="fas fa-cloud-upload-alt" style="font-size:30px;color:#0070F2;display:block;margin-bottom:8px"></i>
       <p style="font-size:13px;font-weight:600;color:var(--tp);margin:0 0 4px">Click to browse or drag &amp; drop</p>
-      <p style="font-size:11.5px;color:var(--ts);margin:0">PDF, PPTX, DOCX, XLSX, ZIP &nbsp;&middot;&nbsp; Max 3 MB per file</p>
+      <p style="font-size:11.5px;color:var(--ts);margin:0">PDF, PPTX, DOCX, XLSX, ZIP &nbsp;&middot;&nbsp; Max 20 MB per file</p>
     </div>
     <input type="file" id="mat-file-input" style="display:none"
       accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.zip,.mp4,.txt"
@@ -1134,8 +1148,10 @@ function _fbSyncGuard() {
 // ── Sync: SESSIONS ──────────────────────────────────────────────────────────
 function _fbSyncSessions() {
   if (!_fbDB) { console.warn('[FB] sessions sync skipped — no DB'); return; }
-  console.log('[FB] Writing sessions:', SESSIONS.length, 'entries');
-  _fbDB.ref('sessions').set(SESSIONS)
+  // Only sync non-dummy sessions to Firebase (dummy sessions are seeded locally)
+  const realSessions = SESSIONS.filter(s => !s.isDummy);
+  console.log('[FB] Writing sessions:', realSessions.length, 'entries (excluding', SESSIONS.length - realSessions.length, 'dummy)');
+  _fbDB.ref('sessions').set(realSessions)
     .then(() => console.log('[FB] sessions written successfully'))
     .catch(e => console.error('[FB] sessions write FAILED:', e));
 }
@@ -1148,7 +1164,10 @@ function _fbListenSessions() {
       _fbSyncing = true; _fbSyncGuard();
       try {
         const arr = Array.isArray(data) ? data : Object.values(data);
+        // Preserve dummy sessions, replace only real ones
+        const dummySessions = SESSIONS.filter(s => s.isDummy);
         SESSIONS.length = 0;
+        dummySessions.forEach(s => SESSIONS.push(s));
         arr.forEach(s => { if (s) SESSIONS.push(s); });
         renderLeaderboard(); renderLBChart();
         if (typeof currentJourneyIdx !== 'undefined') {
@@ -1235,6 +1254,8 @@ function _fbListenPairStatus() {
           const pair = PAIRS.find(p => p.idx === s.idx);
           if (pair) pair.status = s.status;
         });
+        // v108: Re-render pairs for all roles (v76 pattern — renderPairs handles filtering)
+        _participantGridLocked = false;
         renderPairs();
         renderLeaderboard();
       } catch(e) { console.warn('FB listener error (pairStatus):', e); }
@@ -1269,13 +1290,17 @@ function _fbListenDummyPairs() {
       try {
         const arr = Array.isArray(data) ? data : Object.values(data);
         DUMMY_PAIRS.length = 0;
-        arr.forEach(d => { if (d) DUMMY_PAIRS.push(d); });
+        arr.forEach(d => { if (d) { d.idx = Number(d.idx); d.score = Number(d.score) || 85; d.sessions = Number(d.sessions) || 0; d.testSessions = Number(d.testSessions) || d.sessions; DUMMY_PAIRS.push(d); } });
         // Rebuild DUMMY_PARTICIPANTS from pairs
         DUMMY_PARTICIPANTS.length = 0;
         DUMMY_PAIRS.forEach(dp => {
           DUMMY_PARTICIPANTS.push({name:dp.m1, type:'experienced', email:dp.email1, status:'Paired', loc:'India', isDummy:true});
           DUMMY_PARTICIPANTS.push({name:dp.m2, type:'early', email:dp.email2, status:'Paired', loc:'India', isDummy:true});
         });
+        // v111: Recalculate _dummyCounter from loaded data to prevent idx conflicts
+        const maxDummyIdx = DUMMY_PAIRS.reduce((mx, dp) => Math.max(mx, Number(dp.idx) || 0), 99);
+        _dummyCounter = maxDummyIdx - 100 + 1;
+        // v108: Re-render pairs (renderPairs handles filtering for participants)
         renderPairs();
         renderLeaderboard(); renderLBChart();
         if (CURRENT_ROLE === 'admin') {
@@ -1407,19 +1432,49 @@ if (typeof Chart === 'undefined') {
 // =========================================================
 // ROLE CONFIG
 // =========================================================
-let CURRENT_ROLE = 'admin';   // 'admin' | 'participant' | 'guest'
+var CURRENT_ROLE = 'admin';   // 'admin' | 'participant' | 'guest'
 const PILOT_STARTED = new Date() >= new Date('2026-07-10T00:00:00'); // Auto-live from July 10 (kick-off July 7)
-let MY_PAIR_IDX = 13;          // Akshay Sureshchand & Shubh Srivastava (PAIRS[13])
-// Explicit global state declarations (FIX-v64-1: prevent implicit globals)
-let CURRENT_SESSION      = null;
-let PARTICIPANT_NAME     = '';
-let PARTICIPANT_INITIALS = '';
-let PARTICIPANT_COLOR    = '#6b7280';
+var MY_PAIR_IDX = 0;           // Default to first pair (overridden by login)
+
+// v108: _findPairByIdx — safe lookup for any view (handles DUMMY_PAIRS with idx 100+)
+// v112: Now used by participant views too — dummy pair participants need this for all rendering.
+function _findPairByIdx(idx) {
+  if (idx === null || idx === undefined) return null;
+  var _idx = (typeof idx === 'string') ? parseInt(idx, 10) : Number(idx);
+  if (isNaN(_idx)) return null;
+  // Real pairs: idx matches array position (0-14)
+  if (_idx >= 0 && _idx < PAIRS.length && PAIRS[_idx] && Number(PAIRS[_idx].idx) === _idx) return PAIRS[_idx];
+  // Dummy pairs (admin only): scan by idx property (use == for Firebase string/number tolerance)
+  if (typeof DUMMY_PAIRS !== 'undefined') {
+    for (var j = 0; j < DUMMY_PAIRS.length; j++) {
+      if (Number(DUMMY_PAIRS[j].idx) === _idx) return DUMMY_PAIRS[j];
+    }
+  }
+  // Fallback scan (should never be needed for real pairs)
+  for (var i = 0; i < PAIRS.length; i++) {
+    if (Number(PAIRS[i].idx) === _idx) return PAIRS[i];
+  }
+  return null;
+}
+
+// v108: Simplified _getMyPairIdx — returns MY_PAIR_IDX (set by applySession from identifyUser)
+function _getMyPairIdx() {
+  return MY_PAIR_IDX;
+}
+
+// Explicit global state declarations
+var CURRENT_SESSION      = null;
+var PARTICIPANT_NAME     = '';
+var PARTICIPANT_INITIALS = '';
+var PARTICIPANT_COLOR    = '#6b7280';
+// Lock flag — once participant grid is rendered, no other function touches pairs-grid
+var _participantGridLocked = false;
+
 // NPS pre-bake constant — set to true before distributing HTML to activate survey for all participants
 const NPS_PREBAKED_ACTIVE = false;
 // Journey Tracker module-level state (FIX-A: explicit declarations to avoid implicit globals)
-let currentJourneyIdx = 0;
-let currentPairCurriculum = null;
+var currentJourneyIdx = 0;
+var currentPairCurriculum = null;
 let pendingTopicMark = null;
 function _getJourneyState(idx) {
   const key = 'cgm_journey_v2_' + idx;
@@ -1636,6 +1691,7 @@ function doLogin() {
   try { sessionStorage.removeItem('cgm_session'); } catch(e) {}
   try { sessionStorage.setItem('cgm_session', JSON.stringify(session)); } catch(e) {}
   _bootPortal.done = false;  // allow portal to re-initialise for new user
+  _participantGridLocked = false; // v104-FIX: reset grid lock for fresh login
   applySession(session);
 }
 
@@ -1645,10 +1701,12 @@ function _loginErr(msg) {
 }
 
 function applySession(session) {
-  // Set mutable role vars
+  // v108: Restore v76 pattern — simple, direct pair index assignment
+  // identifyUser already scanned PAIRS by email and set session.pairIdx correctly.
+  // Just assign it to MY_PAIR_IDX. That's it.
   CURRENT_SESSION      = session;
   CURRENT_ROLE         = session.role;
-  MY_PAIR_IDX          = session.pairIdx !== null ? session.pairIdx : MY_PAIR_IDX;
+  MY_PAIR_IDX          = (session.pairIdx !== null && session.pairIdx !== undefined) ? session.pairIdx : 0;
   PARTICIPANT_NAME     = session.name;
   PARTICIPANT_INITIALS = session.initials;
   PARTICIPANT_COLOR    = session.color;
@@ -1739,6 +1797,7 @@ function setRole(role) {
 
   // Sync Journey Tracker curriculum to the correct pair for this role
   if (role === 'participant') {
+    // v108: Restore v76 pattern — use MY_PAIR_IDX directly. Simple and reliable.
     const pairSel = document.getElementById('pair-sel');
     if (pairSel) pairSel.value = String(MY_PAIR_IDX);
     loadJourney(MY_PAIR_IDX);
@@ -1746,7 +1805,7 @@ function setRole(role) {
     // Update the participant pill with their actual pair names
     const pill = document.getElementById('participant-pair-pill');
     if (pill) {
-      const mp = PAIRS[MY_PAIR_IDX];
+      const mp = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
       if (mp) {
         pill.innerHTML =
           '<div class="av" style="background:' + mp.c1 + ';width:22px;height:22px;font-size:8px">' + mp.i1 + '</div>' +
@@ -1788,40 +1847,40 @@ function setRole(role) {
 const PARTICIPANTS = [
   {name:"Nitesh Agrawal",type:"experienced",email:"nit.agrawal@sap.com",status:"Paired",loc:"India"},
   {name:"Rachel Negi",type:"early",email:"rachel.negi@sap.com",status:"Paired",loc:"India"},
-  {name:"Shambhav",type:"experienced",email:"k.shambhav@sap.com",status:"Paired",loc:"India"},
+  {name:"Shambhav Kumar",type:"experienced",email:"k.shambhav@sap.com",status:"Paired",loc:"India"},
   {name:"Kabir Nasir",type:"early",email:"kabir.nasir@sap.com",status:"Paired",loc:"India"},
-  {name:"Lingraj B",type:"experienced",email:"lingraj.b.rudrawadi@sap.com",status:"Paired",loc:"India"},
-  {name:"Sreeranjini",type:"early",email:"sreeranjini.s@sap.com",status:"Paired",loc:"India"},
+  {name:"Lingraj B Rudrawadi",type:"experienced",email:"lingraj.b.rudrawadi@sap.com",status:"Paired",loc:"India"},
+  {name:"Sreeranjini S",type:"early",email:"sreeranjini.s@sap.com",status:"Paired",loc:"India"},
   {name:"Anupam Rajput",type:"experienced",email:"anupam.rajput@sap.com",status:"Paired",loc:"India"},
-  {name:"Harsha",type:"early",email:"harsha.s.k@sap.com",status:"Paired",loc:"India"},
+  {name:"Harsha S K",type:"early",email:"harsha.s.k@sap.com",status:"Paired",loc:"India"},
   {name:"Anand K",type:"experienced",email:"anand.k@sap.com",status:"Paired",loc:"India"},
-  {name:"Kislay",type:"early",email:"kislay.kumar@sap.com",status:"Paired",loc:"India"},
-  {name:"Jhansi",type:"experienced",email:"j.b@sap.com",status:"Paired",loc:"India"},
+  {name:"Kishlay Kumar",type:"early",email:"kislay.kumar@sap.com",status:"Paired",loc:"India"},
+  {name:"Jhansi Rani B",type:"experienced",email:"j.b@sap.com",status:"Paired",loc:"India"},
   {name:"Bhavika",type:"early",email:"bhavika@sap.com",status:"Paired",loc:"India"},
   {name:"Sandhya Hariharan",type:"experienced",email:"sandhya.hariharan@sap.com",status:"Paired",loc:"India"},
-  {name:"Ritika",type:"early",email:"ritika.pande@sap.com",status:"Paired",loc:"India"},
-  {name:"Rupam",type:"experienced",email:"rupam.agarwalla@sap.com",status:"Paired",loc:"India"},
-  {name:"Anjana",type:"early",email:"anjana.ms@sap.com",status:"Paired",loc:"India"},
-  {name:"Pavithra",type:"experienced",email:"pavithra.veerabhadraiah@sap.com",status:"Paired",loc:"India"},
-  {name:"Khitiz",type:"early",email:"khitiz.arya@sap.com",status:"Paired",loc:"India"},
-  {name:"Raghav",type:"experienced",email:"raghav.s@sap.com",status:"Paired",loc:"India"},
-  {name:"Siju",type:"early",email:"s.pavithran@sap.com",status:"Paired",loc:"India"},
-  {name:"Nagaraj",type:"experienced",email:"kishan.bhaskar.nagaraj@sap.com",status:"Paired",loc:"India"},
-  {name:"Sneha",type:"early",email:"s.kb@sap.com",status:"Paired",loc:"India"},
+  {name:"Ritika Pande",type:"early",email:"ritika.pande@sap.com",status:"Paired",loc:"India"},
+  {name:"Rupam Agarwalla",type:"experienced",email:"rupam.agarwalla@sap.com",status:"Paired",loc:"India"},
+  {name:"Anjana M S",type:"early",email:"anjana.ms@sap.com",status:"Paired",loc:"India"},
+  {name:"Pavithra Veerabhadraiah",type:"experienced",email:"pavithra.veerabhadraiah@sap.com",status:"Paired",loc:"India"},
+  {name:"Khitiz Arya",type:"early",email:"khitiz.arya@sap.com",status:"Paired",loc:"India"},
+  {name:"Raghav S",type:"experienced",email:"raghav.s@sap.com",status:"Paired",loc:"India"},
+  {name:"Siju Pavithran",type:"early",email:"s.pavithran@sap.com",status:"Paired",loc:"India"},
+  {name:"Kishan Baskar Nagaraj",type:"experienced",email:"kishan.bhaskar.nagaraj@sap.com",status:"Paired",loc:"India"},
+  {name:"Sneha K B",type:"early",email:"s.kb@sap.com",status:"Paired",loc:"India"},
   {name:"Vivek Vadiraj",type:"experienced",email:"vivek.vadiraj@sap.com",status:"Paired",loc:"India"},
   {name:"Abhishek Bantiya",type:"early",email:"abhishek.bantiya@sap.com",status:"Paired",loc:"India"},
   {name:"Ambika KV",type:"experienced",email:"ambika.kv@sap.com",status:"Paired",loc:"India"},
-  {name:"Ataa",type:"early",email:"mohd.ataa.khan@sap.com",status:"Paired",loc:"India"},
+  {name:"Mohd Ataa Khan",type:"early",email:"mohd.ataa.khan@sap.com",status:"Paired",loc:"India"},
   {name:"Akshay Sureshchand",type:"experienced",email:"akshay.sureshchand@sap.com",status:"Paired",loc:"India"},
-  {name:"Shubh",type:"early",email:"shubh.srivastava@sap.com",status:"Paired",loc:"India"},
+  {name:"Shubh Srivastava",type:"early",email:"shubh.srivastava@sap.com",status:"Paired",loc:"India"},
   {name:"Priyanka Singh",type:"experienced",email:"priyanka.singh02@sap.com",status:"Paired",loc:"India"},
-  {name:"Ansh",type:"early",email:"ansh.bomb@sap.com",status:"Paired",loc:"India"},
+  {name:"Ansh Bomb",type:"early",email:"ansh.bomb@sap.com",status:"Paired",loc:"India"},
 ];
 
 // ─── DUMMY TEST PAIRS (admin-only, never visible to participants) ──────────
 // Pre-seeded with 3 pairs; admin can add up to 5 via "Add Dummy Pair" modal.
 // testSessions drives the leaderboard score calculation for dummy pairs.
-let DUMMY_PAIRS = [
+var DUMMY_PAIRS = [
   {idx:100,m1:'Aryan Kapoor',  m2:'Meera Nair',   i1:'AK',i2:'MN',c1:'#5C35CC',c2:'#E91E7A',score:88,loc:'India',status:'Approved',badge:'&#127775;',sessions:5,isDummy:true,testSessions:5, email1:'aryan.kapoor@sap.com', email2:'meera.nair@sap.com', cats:['AI & Technology','Career & Growth'], topics:'AI productivity tools, Async vs formal communication, Gen Z approach to problem solving, Career planning without a fixed roadmap, Building visibility at work, Strategic Thinking', tradTopics:['Career planning without a fixed roadmap','Building visibility at work','Strategic Thinking'], revTopics:['AI productivity tools','Async vs formal communication','Gen Z approach to problem solving']},
   {idx:101,m1:'Kiran Patel',   m2:'Divya Reddy',  i1:'KP',i2:'DR',c1:'#00897B',c2:'#F57F17',score:76,loc:'India',status:'Approved',badge:'&#127775;',sessions:2,isDummy:true,testSessions:2, email1:'kiran.patel@sap.com', email2:'divya.reddy@sap.com', cats:['Communication','People & Culture'], topics:'Cross-generational communication styles, Building trust in new teams, Feedback culture across generations, Inclusive team dynamics, Active listening and empathy at work, Managing expectations across experience levels', tradTopics:['Building trust in new teams','Active listening and empathy at work','Managing expectations across experience levels'], revTopics:['Cross-generational communication styles','Feedback culture across generations','Inclusive team dynamics']},
   {idx:102,m1:'Suresh Iyer',   m2:'Pooja Verma',  i1:'SI',i2:'PV',c1:'#1565C0',c2:'#6A1B9A',score:93,loc:'India',status:'Approved',badge:'&#127775;',sessions:6,isDummy:true,testSessions:6, email1:'suresh.iyer@sap.com', email2:'pooja.verma@sap.com', cats:['Strategy & Decisions','Career & Growth'], topics:'Decision-making in ambiguity, Strategic thinking for early career, Product roadmap evolution, Leadership transition frameworks, Stakeholder management, Innovation and risk appetite', tradTopics:['Decision-making in ambiguity','Leadership transition frameworks','Stakeholder management'], revTopics:['Strategic thinking for early career','Product roadmap evolution','Innovation and risk appetite']},
@@ -1858,7 +1917,7 @@ const DUMMY_PAIR_TOPICS = {
   ],
   102: [
     {t:'Decision-making in ambiguity', done:true, notes:'Real project example walkthrough', qs:[]},
-    {t:'Strategic thinking for early career', done:true, notes:'Frameworks shared', qs:[]},
+    {t:'Strategic thinking for early career', done:true, notes:'Frameworks shared and practiced', qs:[]},
     {t:'Product roadmap evolution', done:true, notes:'', qs:[]},
     {t:'Leadership transition frameworks', done:true, notes:'IC to manager transition', qs:[]},
     {t:'Stakeholder management', done:true, notes:'Influence without authority tactics', qs:[]},
@@ -1878,8 +1937,9 @@ const DUMMY_PAIR_TOPICS = {
 function getAllPairs() {
   if (CURRENT_ROLE === 'admin') return [...PAIRS, ...DUMMY_PAIRS];
   // Participant/guest: show real pairs + only their own dummy pair (if applicable)
-  const myDummy = DUMMY_PAIRS.find(d => d.idx === MY_PAIR_IDX);
-  return myDummy ? [...PAIRS, myDummy] : PAIRS;
+  const _myIdx = _getMyPairIdx();
+  const myDummy = DUMMY_PAIRS.find(d => d.idx === _myIdx);
+  return myDummy ? [...PAIRS, myDummy] : [...PAIRS];
 }
 
 /** Returns all participants for admin (real + dummy), real-only for participant/guest. */
@@ -2003,28 +2063,52 @@ const PAIR_TOPICS = [
   ],
 ];
 
-const PAIRS = [
+var PAIRS = [
   {idx:0,m1:"Nitesh Agrawal",m2:"Rachel Negi",i1:"NA",i2:"RN",c1:"#1565C0",c2:"#C0392B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"nit.agrawal@sap.com",email2:"rachel.negi@sap.com",topics:"How Gen Z receives and processes feedback, AI as a self-learning and upskilling tool, Defining career success across generations, Stakeholder management and influencing without authority, Motivation engagement and attrition triggers, Digital collaboration habits and async communication",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Stakeholder management and influencing without authority","Motivation engagement and attrition triggers","Defining career success across generations"],revTopics:["How Gen Z receives and processes feedback","AI as a self-learning and upskilling tool","Digital collaboration habits and async communication"]},
-  {idx:1,m1:"Shambhav",m2:"Kabir Nasir",i1:"KS",i2:"KN",c1:"#2E7D32",c2:"#0070F2",score:95,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"k.shambhav@sap.com",email2:"kabir.nasir@sap.com",topics:"How fresh minds approach complex problems, AI tools in day-to-day work, Building credibility and influence as an individual contributor, Transitioning from IC to leadership roles, What creates genuine belonging for early talent, Navigating organisational culture as a newcomer",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["Building credibility and influence as an individual contributor","Transitioning from IC to leadership roles","Navigating organisational culture as a newcomer"],revTopics:["How fresh minds approach complex problems","AI tools in day-to-day work","What creates genuine belonging for early talent"]},
-  {idx:2,m1:"Lingraj B",m2:"Sreeranjini",i1:"LB",i2:"SR",c1:"#E65100",c2:"#16A085",score:92,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"lingraj.b.rudrawadi@sap.com",email2:"sreeranjini.s@sap.com",topics:"Evolution from waterfall to AI-era development, Applied AI and ML in real product work, Learning from failure and setbacks, Communication clarity across levels and generations, Cybersecurity and its strategic business implications, How Gen Z approaches technical learning",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions"],tradTopics:["Learning from failure and setbacks","Communication clarity across levels and generations","Cybersecurity and its strategic business implications"],revTopics:["Evolution from waterfall to AI-era development","Applied AI and ML in real product work","How Gen Z approaches technical learning"]},
-  {idx:3,m1:"Anupam Rajput",m2:"Harsha",i1:"AR",i2:"HA",c1:"#4527A0",c2:"#D35400",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anupam.rajput@sap.com",email2:"harsha.s.k@sap.com",topics:"AI productivity tools that work in practice, Setting boundaries and saying no effectively, Pitching and presenting ideas impactfully, Stress management and sustainable pace of work, Product development lifecycle end to end, Work-life balance across career stages",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions","Wellbeing"],tradTopics:["Setting boundaries and saying no effectively","Pitching and presenting ideas impactfully","Stress management and sustainable pace of work"],revTopics:["AI productivity tools that work in practice","Work-life balance across career stages","Product development lifecycle end to end"]},
-  {idx:4,m1:"Anand K",m2:"Kislay",i1:"AK",i2:"KK",c1:"#0277BD",c2:"#7D3C98",score:91,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anand.k@sap.com",email2:"kislay.kumar@sap.com",topics:"How product roadmaps evolve with AI and market shifts, AI-assisted development and its impact on delivery, Customer centricity and escalation handling, Conditions that produce genuine out-of-the-box thinking, Career expectations vs organisational reality at SAP, Emerging tools and their viability at org level",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["How product roadmaps evolve with AI and market shifts","Customer centricity and escalation handling","Career expectations vs organisational reality at SAP"],revTopics:["AI-assisted development and its impact on delivery","Conditions that produce genuine out-of-the-box thinking","Emerging tools and their viability at org level"]},
-  {idx:5,m1:"Jhansi",m2:"Bhavika",i1:"JB",i2:"BH",c1:"#00695C",c2:"#2471A3",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"j.b@sap.com",email2:"bhavika@sap.com",topics:"How product strategy gets shaped at the business level, Connecting engineering decisions to customer and commercial outcomes, Real stories of near-misses and course corrections, Staying current with fast-moving technology, Navigating a role pivot, Life beyond work and its impact on performance",cats:["AI & Technology","Career & Growth","Strategy & Decisions","Wellbeing"],tradTopics:["How product strategy gets shaped at the business level","Connecting engineering decisions to customer and commercial outcomes","Navigating a role pivot"],revTopics:["Staying current with fast-moving technology","Life beyond work and its impact on performance","Real stories of near-misses and course corrections"]},
-  {idx:6,m1:"Sandhya Hariharan",m2:"Ritika",i1:"SH",i2:"RP",c1:"#AD1457",c2:"#1E8449",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"sandhya.hariharan@sap.com",email2:"ritika.pande@sap.com",topics:"How early talent perceives experienced managers, Technology upkeep for senior professionals, Career growth planning and focal points at different stages, Managing people and time effectively, Work-life balance across generations, Product management skills and decision-making",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["Career growth planning and focal points at different stages","Managing people and time effectively","Product management skills and decision-making"],revTopics:["How early talent perceives experienced managers","Technology upkeep for senior professionals","Work-life balance across generations"]},
-  {idx:7,m1:"Rupam",m2:"Anjana",i1:"RA",i2:"AM",c1:"#37474F",c2:"#CB4335",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"rupam.agarwalla@sap.com",email2:"anjana.ms@sap.com",topics:"AI and smart prompting in daily work, Decision-making frameworks in ambiguous situations, Building visibility and recognition at work, Career planning without a fixed roadmap, Handling difficult situations and conversations, Self-learning with modern AI tools",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["Decision-making frameworks in ambiguous situations","Building visibility and recognition at work","Career planning without a fixed roadmap"],revTopics:["AI and smart prompting in daily work","Self-learning with modern AI tools","Handling difficult situations and conversations"]},
-  {idx:8,m1:"Pavithra",m2:"Khitiz",i1:"PV",i2:"KA",c1:"#BF360C",c2:"#117A65",score:85,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"pavithra.veerabhadraiah@sap.com",email2:"khitiz.arya@sap.com",topics:"Evolving ways of working, Developing AI — new way of thinking, Redefining work-life balance, AI-driven automation in daily workflows, Sustainable productivity and avoiding burnout, Building adaptability in fast-changing environments",cats:["AI & Technology","Strategy & Decisions","Wellbeing"],tradTopics:["Evolving ways of working","Sustainable productivity and avoiding burnout","Building adaptability in fast-changing environments"],revTopics:["Developing AI — new way of thinking","AI-driven automation in daily workflows","Redefining work-life balance"]},
-  {idx:9,m1:"Raghav",m2:"Siju",i1:"RS",i2:"SP",c1:"#1B5E20",c2:"#1A5276",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"raghav.s@sap.com",email2:"s.pavithran@sap.com",topics:"Agentic AI and its practical applications, Gen Z mindset and what managers often misread, Charting a career path and staying relevant, Async vs formal communication styles, Personal branding and content creation at work, What leadership means to the new generation",cats:["AI & Technology","Career & Growth","Communication","People & Culture"],tradTopics:["Charting a career path and staying relevant","Async vs formal communication styles","What leadership means to the new generation"],revTopics:["Agentic AI and its practical applications","Gen Z mindset and what managers often misread","Personal branding and content creation at work"]},
-  {idx:10,m1:"Nagaraj",m2:"Sneha",i1:"NK",i2:"SN",c1:"#880E4F",c2:"#B7950B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"kishan.bhaskar.nagaraj@sap.com",email2:"s.kb@sap.com",topics:"What makes feedback actually land, How early talent learns fast, Big picture thinking and strategic context, Leadership and accountability in practice, Ground-level challenges that don’t reach leadership, New technology and developer productivity",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Big picture thinking and strategic context","Leadership and accountability in practice","Ground-level challenges that don’t reach leadership"],revTopics:["What makes feedback actually land","How early talent learns fast","New technology and developer productivity"]},
+  {idx:1,m1:"Shambhav Kumar",m2:"Kabir Nasir",i1:"KS",i2:"KN",c1:"#2E7D32",c2:"#0070F2",score:95,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"k.shambhav@sap.com",email2:"kabir.nasir@sap.com",topics:"How fresh minds approach complex problems, AI tools in day-to-day work, Building credibility and influence as an individual contributor, Transitioning from IC to leadership roles, What creates genuine belonging for early talent, Navigating organisational culture as a newcomer",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["Building credibility and influence as an individual contributor","Transitioning from IC to leadership roles","Navigating organisational culture as a newcomer"],revTopics:["How fresh minds approach complex problems","AI tools in day-to-day work","What creates genuine belonging for early talent"]},
+  {idx:2,m1:"Lingraj B Rudrawadi",m2:"Sreeranjini S",i1:"LB",i2:"SR",c1:"#E65100",c2:"#16A085",score:92,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"lingraj.b.rudrawadi@sap.com",email2:"sreeranjini.s@sap.com",topics:"Evolution from waterfall to AI-era development, Applied AI and ML in real product work, Learning from failure and setbacks, Communication clarity across levels and generations, Cybersecurity and its strategic business implications, How Gen Z approaches technical learning",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions"],tradTopics:["Learning from failure and setbacks","Communication clarity across levels and generations","Cybersecurity and its strategic business implications"],revTopics:["Evolution from waterfall to AI-era development","Applied AI and ML in real product work","How Gen Z approaches technical learning"]},
+  {idx:3,m1:"Anupam Rajput",m2:"Harsha S K",i1:"AR",i2:"HA",c1:"#4527A0",c2:"#D35400",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anupam.rajput@sap.com",email2:"harsha.s.k@sap.com",topics:"AI productivity tools that work in practice, Setting boundaries and saying no effectively, Pitching and presenting ideas impactfully, Stress management and sustainable pace of work, Product development lifecycle end to end, Work-life balance across career stages",cats:["AI & Technology","Career & Growth","Communication","Strategy & Decisions","Wellbeing"],tradTopics:["Pitching and presenting ideas impactfully","AI productivity tools that work in practice","Product development lifecycle end to end","Work-life balance across career stages"],revTopics:["Setting boundaries and saying no effectively","Stress management and sustainable pace of work"]},
+  {idx:4,m1:"Anand K",m2:"Kishlay Kumar",i1:"AK",i2:"KK",c1:"#0277BD",c2:"#7D3C98",score:91,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"anand.k@sap.com",email2:"kislay.kumar@sap.com",topics:"How product roadmaps evolve with AI and market shifts, AI-assisted development and its impact on delivery, Customer centricity and escalation handling, Conditions that produce genuine out-of-the-box thinking, Career expectations vs organisational reality at SAP, Emerging tools and their viability at org level",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["How product roadmaps evolve with AI and market shifts","Customer centricity and escalation handling","Career expectations vs organisational reality at SAP"],revTopics:["AI-assisted development and its impact on delivery","Conditions that produce genuine out-of-the-box thinking","Emerging tools and their viability at org level"]},
+  {idx:5,m1:"Jhansi Rani B",m2:"Bhavika",i1:"JB",i2:"BH",c1:"#00695C",c2:"#2471A3",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"j.b@sap.com",email2:"bhavika@sap.com",topics:"How product strategy gets shaped at the business level, Connecting engineering decisions to customer and commercial outcomes, Real stories of near-misses and course corrections, Staying current with fast-moving technology, Navigating a role pivot, Life beyond work and its impact on performance",cats:["AI & Technology","Career & Growth","Strategy & Decisions","Wellbeing"],tradTopics:["How product strategy gets shaped at the business level","Connecting engineering decisions to customer and commercial outcomes","Navigating a role pivot"],revTopics:["Staying current with fast-moving technology","Life beyond work and its impact on performance","Real stories of near-misses and course corrections"]},
+  {idx:6,m1:"Sandhya Hariharan",m2:"Ritika Pande",i1:"SH",i2:"RP",c1:"#AD1457",c2:"#1E8449",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"sandhya.hariharan@sap.com",email2:"ritika.pande@sap.com",topics:"How early talent perceives experienced managers, Technology upkeep for senior professionals, Career growth planning and focal points at different stages, Managing people and time effectively, Work-life balance across generations, Product management skills and decision-making",cats:["AI & Technology","Career & Growth","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["Career growth planning and focal points at different stages","Managing people and time effectively","Product management skills and decision-making"],revTopics:["How early talent perceives experienced managers","Technology upkeep for senior professionals","Work-life balance across generations"]},
+  {idx:7,m1:"Rupam Agarwalla",m2:"Anjana M S",i1:"RA",i2:"AM",c1:"#37474F",c2:"#CB4335",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"rupam.agarwalla@sap.com",email2:"anjana.ms@sap.com",topics:"AI and smart prompting in daily work, Decision-making frameworks in ambiguous situations, Building visibility and recognition at work, Career planning without a fixed roadmap, Handling difficult situations and conversations, Self-learning with modern AI tools",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["Decision-making frameworks in ambiguous situations","Building visibility and recognition at work","Career planning without a fixed roadmap"],revTopics:["AI and smart prompting in daily work","Self-learning with modern AI tools","Handling difficult situations and conversations"]},
+  {idx:8,m1:"Pavithra Veerabhadraiah",m2:"Khitiz Arya",i1:"PV",i2:"KA",c1:"#BF360C",c2:"#117A65",score:85,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"pavithra.veerabhadraiah@sap.com",email2:"khitiz.arya@sap.com",topics:"Evolving ways of working, Developing AI — new way of thinking, Redefining work-life balance, AI-driven automation in daily workflows, Sustainable productivity and avoiding burnout, Building adaptability in fast-changing environments",cats:["AI & Technology","Strategy & Decisions","Wellbeing"],tradTopics:["Evolving ways of working","Sustainable productivity and avoiding burnout","Building adaptability in fast-changing environments"],revTopics:["Developing AI — new way of thinking","AI-driven automation in daily workflows","Redefining work-life balance"]},
+  {idx:9,m1:"Raghav S",m2:"Siju Pavithran",i1:"RS",i2:"SP",c1:"#1B5E20",c2:"#1A5276",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"raghav.s@sap.com",email2:"s.pavithran@sap.com",topics:"Agentic AI and its practical applications, Gen Z mindset and what managers often misread, Charting a career path and staying relevant, Async vs formal communication styles, Personal branding and content creation at work, What leadership means to the new generation",cats:["AI & Technology","Career & Growth","Communication","People & Culture"],tradTopics:["Charting a career path and staying relevant","Async vs formal communication styles","Agentic AI and its practical applications"],revTopics:["Gen Z mindset and what managers often misread","Personal branding and content creation at work","What leadership means to the new generation"]},
+  {idx:10,m1:"Kishan Baskar Nagaraj",m2:"Sneha K B",i1:"NK",i2:"SN",c1:"#880E4F",c2:"#B7950B",score:97,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"kishan.bhaskar.nagaraj@sap.com",email2:"s.kb@sap.com",topics:"What makes feedback actually land, How early talent learns fast, Big picture thinking and strategic context, Leadership and accountability in practice, Ground-level challenges that don’t reach leadership, New technology and developer productivity",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Big picture thinking and strategic context","Leadership and accountability in practice","New technology and developer productivity"],revTopics:["What makes feedback actually land","How early talent learns fast","Ground-level challenges that don’t reach leadership"]},
   {idx:11,m1:"Vivek Vadiraj",m2:"Abhishek Bantiya",i1:"VV",i2:"AB",c1:"#1A237E",c2:"#6C3483",score:91,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"vivek.vadiraj@sap.com",email2:"abhishek.bantiya@sap.com",topics:"What changes when moving from IC to people leader, Problem discovery and ideation approaches, Prioritisation under pressure, Self-learning through AI and modern platforms, Building professional relationships and networks, Gamification and making work more engaging",cats:["AI & Technology","Career & Growth","Strategy & Decisions"],tradTopics:["What changes when moving from IC to people leader","Prioritisation under pressure","Building professional relationships and networks"],revTopics:["Problem discovery and ideation approaches","Self-learning through AI and modern platforms","Gamification and making work more engaging"]},
-  {idx:12,m1:"Ambika KV",m2:"Ataa",i1:"AV",i2:"AT",c1:"#6A1B9A",c2:"#0E6655",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"ambika.kv@sap.com",email2:"mohd.ataa.khan@sap.com",topics:"High-pressure decision-making with incomplete information, Influencing without authority, Long-term career paths at SAP, What the early talent experience really looks like, Challenging existing products code and workflows constructively, Fresh perspectives on legacy systems and processes",cats:["Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["High-pressure decision-making with incomplete information","Influencing without authority","Long-term career paths at SAP"],revTopics:["What the early talent experience really looks like","Challenging existing products code and workflows constructively","Fresh perspectives on legacy systems and processes"]},
-  {idx:13,m1:"Akshay Sureshchand",m2:"Shubh",i1:"AC",i2:"SS",c1:"#004D40",c2:"#33691E",score:98,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"akshay.sureshchand@sap.com",email2:"shubh.srivastava@sap.com",topics:"How Gen Z learns and upskills in an AI world, AI experimentation and adoption mindset, What makes someone an effective team player, Self-directed learning and side projects, Workplace expectations around flexibility and feedback, Decision-making in complex and uncertain situations",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["What makes someone an effective team player","Decision-making in complex and uncertain situations","Workplace expectations around flexibility and feedback"],revTopics:["How Gen Z learns and upskills in an AI world","AI experimentation and adoption mindset","Self-directed learning and side projects"]},
-  {idx:14,m1:"Priyanka Singh",m2:"Ansh",i1:"PR",i2:"AN",c1:"#C0392B",c2:"#BF360C",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"priyanka.singh02@sap.com",email2:"ansh.bomb@sap.com",topics:"Navigating ambiguity and evolving roles, Communication styles and expectations across generations, Psychological safety in teams, Moving from task execution to ownership, How strategic decisions get made at SAP, Clarity in communication and learning agility",cats:["Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Navigating ambiguity and evolving roles","Psychological safety in teams","How strategic decisions get made at SAP"],revTopics:["Communication styles and expectations across generations","Clarity in communication and learning agility","Moving from task execution to ownership"]},
+  {idx:12,m1:"Ambika KV",m2:"Mohd Ataa Khan",i1:"AV",i2:"AT",c1:"#6A1B9A",c2:"#0E6655",score:89,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"ambika.kv@sap.com",email2:"mohd.ataa.khan@sap.com",topics:"High-pressure decision-making with incomplete information, Influencing without authority, Long-term career paths at SAP, What the early talent experience really looks like, Challenging existing products code and workflows constructively, Fresh perspectives on legacy systems and processes",cats:["Career & Growth","People & Culture","Strategy & Decisions"],tradTopics:["High-pressure decision-making with incomplete information","Influencing without authority","Long-term career paths at SAP"],revTopics:["What the early talent experience really looks like","Challenging existing products code and workflows constructively","Fresh perspectives on legacy systems and processes"]},
+  {idx:13,m1:"Akshay Sureshchand",m2:"Shubh Srivastava",i1:"AC",i2:"SS",c1:"#004D40",c2:"#33691E",score:98,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"akshay.sureshchand@sap.com",email2:"shubh.srivastava@sap.com",topics:"How Gen Z learns and upskills in an AI world, AI experimentation and adoption mindset, What makes someone an effective team player, Self-directed learning and side projects, Workplace expectations around flexibility and feedback, Decision-making in complex and uncertain situations",cats:["AI & Technology","Career & Growth","Communication","People & Culture","Strategy & Decisions","Wellbeing"],tradTopics:["What makes someone an effective team player","Decision-making in complex and uncertain situations","Workplace expectations around flexibility and feedback"],revTopics:["How Gen Z learns and upskills in an AI world","AI experimentation and adoption mindset","Self-directed learning and side projects"]},
+  {idx:14,m1:"Priyanka Singh",m2:"Ansh Bomb",i1:"PR",i2:"AN",c1:"#C0392B",c2:"#BF360C",score:94,loc:"India",status:"Pending",badge:"&#127775;",sessions:0,email1:"priyanka.singh02@sap.com",email2:"ansh.bomb@sap.com",topics:"Navigating ambiguity and evolving roles, Communication styles and expectations across generations, Psychological safety in teams, Moving from task execution to ownership, How strategic decisions get made at SAP, Clarity in communication and learning agility",cats:["Career & Growth","Communication","People & Culture","Strategy & Decisions"],tradTopics:["Navigating ambiguity and evolving roles","Moving from task execution to ownership","How strategic decisions get made at SAP"],revTopics:["Communication styles and expectations across generations","Clarity in communication and learning agility","Psychological safety in teams"]},
 ];
 
 const SESSIONS = [
-  // No sessions logged yet — pilot is in matching/approval phase.
+  // No sessions logged yet for real pairs — pilot is in matching/approval phase.
   // Participants can log their first session once pairs are approved and kick-off is completed.
 ];
+
+// ── Pre-populate SESSIONS for dummy pairs (so Session Log matches KPI) ──────────
+(function _seedDummySessions() {
+  const today = new Date();
+  DUMMY_PAIRS.forEach(dp => {
+    const topics = DUMMY_PAIR_TOPICS[dp.idx] || [];
+    const doneTopics = topics.filter(t => t.done);
+    doneTopics.forEach((topic, i) => {
+      // Determine session type based on whether topic is in revTopics or tradTopics
+      const isRev = (dp.revTopics || []).includes(topic.t);
+      const sesDate = new Date(today);
+      sesDate.setDate(sesDate.getDate() - (doneTopics.length - i) * 7); // stagger past sessions weekly
+      SESSIONS.push({
+        pairIdx: dp.idx,
+        d: sesDate.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}),
+        t: topic.t,
+        type: isRev ? 'Reverse' : 'Traditional',
+        summary: topic.notes || 'Session completed successfully.',
+        actions: '',
+        isDummy: true
+      });
+    });
+  });
+})();
 
 // NPS / Feedback state
 const FEEDBACK = [];          // {email, name, score, positive, improve, ts}
@@ -2549,11 +2633,73 @@ function handleFileUpload(inp) {
 function renderPairs() {
   const grid = document.getElementById("pairs-grid");
   if (!grid) return;
-  const pairsToShow = CURRENT_ROLE === "participant" ? getAllPairs().filter(p => p.idx === MY_PAIR_IDX) : getAllPairs();
+
+  // v108: Restore v76 pattern — simple filter for participant, all pairs for admin
+  if (CURRENT_ROLE === "participant") {
+    // For participant: show ONLY their pair (filter by MY_PAIR_IDX)
+    if (_participantGridLocked) return; // Already rendered — no-op (prevents Firebase race)
+    const myPair = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
+    if (!myPair) { grid.innerHTML = '<p style="text-align:center;color:var(--ts);padding:20px">No pair found.</p>'; return; }
+    const p = myPair;
+    const approved = p.status === "Approved";
+    var topicLine = '';
+    try { var c = generatePairCurriculum(p.idx); topicLine = c.rev.slice(0,1).concat(c.trad.slice(0,1)).map(function(t){ return t.title; }).join(' \u00b7 '); } catch(e) {}
+    if (!topicLine) topicLine = '<em>No topics assigned</em>';
+    var topicFull = '';
+    try { var cf = generatePairCurriculum(p.idx); topicFull = cf.rev.concat(cf.trad).map(function(t){ return t.title; }).join(', '); } catch(e) {}
+    var statusBadge = approved
+      ? '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7"><i class="fas fa-check-circle" style="font-size:9px"></i>Approved</span>'
+      : '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80"><i class="fas fa-hourglass-half" style="font-size:9px"></i>Pending</span>';
+    grid.innerHTML = '<div class="card my-pair-card" style="padding:0;overflow:hidden;">' +
+      '<div style="background:linear-gradient(135deg,' + (approved ? "#0D5C2E" : "#8B5E00") + ' 0%,' + (approved ? "#107E3E" : "#C56000") + ' 100%);padding:14px 14px 12px;position:relative;overflow:hidden">' +
+        '<div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,.07)"></div>' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<div style="display:flex;flex-shrink:0">' +
+            '<div class="av" style="background:' + p.c1 + ';width:34px;height:34px;font-size:11px;border:2.5px solid rgba(255,255,255,.5);z-index:2">' + p.i1 + '</div>' +
+            '<div class="av" style="background:' + p.c2 + ';width:34px;height:34px;font-size:11px;border:2.5px solid rgba(255,255,255,.5);margin-left:-10px">' + p.i2 + '</div>' +
+          '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<p style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + p.m1 + '</p>' +
+            '<p style="font-size:10.5px;color:rgba(255,255,255,.75)">&amp; ' + p.m2 + '</p>' +
+          '</div>' +
+          '<div style="position:relative;width:44px;height:44px;flex-shrink:0">' +
+            '<svg viewBox="0 0 44 44" style="transform:rotate(-90deg);width:44px;height:44px">' +
+              '<circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="4.5"/>' +
+              '<circle cx="22" cy="22" r="18" fill="none" stroke="#fff" stroke-width="4.5" stroke-dasharray="' + Math.round(113*(p.score/100)) + ' 113" stroke-linecap="round"/>' +
+            '</svg>' +
+            '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff">' + p.score + '%</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="padding:12px 14px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">' +
+          statusBadge +
+          '<span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>6 topics</span>' +
+        '</div>' +
+        '<p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + topicFull + '">' + topicLine + '</p>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<button class="btn bg2 sm" style="flex:1;font-size:11px" onclick="showPairDetail(' + p.idx + ')"><i class="fas fa-eye"></i> Details</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    _participantGridLocked = true;
+    // Update subheading for participant
+    var subhead = document.getElementById("pairs-subhead");
+    if (subhead) subhead.textContent = "(Your pair \u2022 " + p.score + "% match)";
+    updatePairKPIs();
+    return;
+  }
+
+  // Admin/guest mode — release any participant lock
+  _participantGridLocked = false;
+
+  let pairsToShow;
+  let _myIdx = _getMyPairIdx();
+  pairsToShow = getAllPairs();
   grid.innerHTML = pairsToShow.map(p => {
     const approved = p.status === "Approved";
     const sc = scoreColor(p.score);
-    const isMyPair = CURRENT_ROLE === "participant" && p.idx === MY_PAIR_IDX;
+    const isMyPair = false; // Admin view — no "my pair" highlight
     const isDummyPair = !!p.isDummy;
 
     // ── Participant view: show full pair card (score visible even while pending) ──
@@ -2615,13 +2761,153 @@ function renderPairs() {
   updatePairKPIs();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// v104-FIX: DEDICATED PARTICIPANT GRID RENDERER
+// This function is the SOLE writer of pairs-grid when role=participant.
+// It takes the email as a direct parameter (not from any global), scans PAIRS
+// by email, renders the matching pair card, and locks the grid.
+// Called ONCE from _bootPortal after session is fully set up.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _renderParticipantGrid(email) {
+  var grid = document.getElementById("pairs-grid");
+  if (!grid) { console.warn('[v104] _renderParticipantGrid: no grid element'); return; }
+  if (!email) { console.warn('[v104] _renderParticipantGrid: no email'); grid.innerHTML = ''; return; }
+
+  var _e = email.toLowerCase().trim();
+  var pair = null;
+  var _myIdx = -1;
+
+  // Scan PAIRS by email — direct, simple, foolproof
+  for (var i = 0; i < PAIRS.length; i++) {
+    if ((PAIRS[i].email1 || '').toLowerCase() === _e || (PAIRS[i].email2 || '').toLowerCase() === _e) {
+      pair = PAIRS[i];
+      _myIdx = PAIRS[i].idx;
+      break;
+    }
+  }
+  // Also check DUMMY_PAIRS
+  if (!pair && typeof DUMMY_PAIRS !== 'undefined') {
+    for (var j = 0; j < DUMMY_PAIRS.length; j++) {
+      if ((DUMMY_PAIRS[j].email1 || '').toLowerCase() === _e || (DUMMY_PAIRS[j].email2 || '').toLowerCase() === _e) {
+        pair = DUMMY_PAIRS[j];
+        _myIdx = DUMMY_PAIRS[j].idx;
+        break;
+      }
+    }
+  }
+
+  if (!pair) {
+    // v105-FIX: If email not found in PAIRS (admin toggling to participant view),
+    // fall back to pair 0 as a preview
+    var isAdminSession = document.body.classList.contains('is-admin-session');
+    if (isAdminSession && PAIRS.length > 0) {
+      pair = PAIRS[0];
+      _myIdx = PAIRS[0].idx;
+      console.log('[v105] _renderParticipantGrid: admin preview mode — showing pair 0');
+    } else {
+      console.warn('[v105] _renderParticipantGrid: no pair found for', _e);
+      grid.innerHTML = '<p style="text-align:center;color:var(--ts);padding:20px">No pair found for your account.</p>';
+      _participantGridLocked = true;
+      return;
+    }
+  }
+
+  console.log('[v104] _renderParticipantGrid: rendering pair idx=' + _myIdx + ' (' + pair.m1 + ' & ' + pair.m2 + ') for ' + _e);
+
+  // Render the single pair card
+  var approved = pair.status === "Approved";
+  var isDummyPair = !!pair.isDummy;
+
+  var statusBadge = isDummyPair
+    ? '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#EDE7FF;color:#5C35CC;border:1px solid #C5B8FA"><i class="fas fa-flask" style="font-size:9px"></i>Test Data</span>'
+    : approved
+    ? '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#E8F5E9;color:#107E3E;border:1px solid #A5D6A7"><i class="fas fa-check-circle" style="font-size:9px"></i>Approved</span>'
+    : '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;background:#FFF3E0;color:#E8A000;border:1px solid #FFCC80"><i class="fas fa-hourglass-half" style="font-size:9px"></i>Pending</span>';
+
+  var topicLine = '';
+  try {
+    var c = generatePairCurriculum(pair.idx);
+    topicLine = c.rev.slice(0,1).concat(c.trad.slice(0,1)).map(function(t){ return t.title; }).join(' \u00b7 ');
+  } catch(e) { topicLine = ''; }
+  if (!topicLine) topicLine = '<em>No topics assigned</em>';
+
+  var topicFull = '';
+  try {
+    var cf = generatePairCurriculum(pair.idx);
+    topicFull = cf.rev.concat(cf.trad).map(function(t){ return t.title; }).join(', ');
+  } catch(e) { topicFull = ''; }
+
+  grid.innerHTML = '<div class="card my-pair-card" style="padding:0;overflow:hidden;">' +
+    '<div style="background:linear-gradient(135deg,' + (approved ? "#0D5C2E" : "#8B5E00") + ' 0%,' + (approved ? "#107E3E" : "#C56000") + ' 100%);padding:14px 14px 12px;position:relative;overflow:hidden">' +
+      '<div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,.07)"></div>' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div style="display:flex;flex-shrink:0">' +
+          '<div class="av" style="background:' + pair.c1 + ';width:34px;height:34px;font-size:11px;border:2.5px solid rgba(255,255,255,.5);z-index:2">' + pair.i1 + '</div>' +
+          '<div class="av" style="background:' + pair.c2 + ';width:34px;height:34px;font-size:11px;border:2.5px solid rgba(255,255,255,.5);margin-left:-10px">' + pair.i2 + '</div>' +
+        '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<p style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + pair.m1 + '</p>' +
+          '<p style="font-size:10.5px;color:rgba(255,255,255,.75)">&amp; ' + pair.m2 + '</p>' +
+        '</div>' +
+        '<div style="position:relative;width:44px;height:44px;flex-shrink:0">' +
+          '<svg viewBox="0 0 44 44" style="transform:rotate(-90deg);width:44px;height:44px">' +
+            '<circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="4.5"/>' +
+            '<circle cx="22" cy="22" r="18" fill="none" stroke="#fff" stroke-width="4.5" stroke-dasharray="' + Math.round(113*(pair.score/100)) + ' 113" stroke-linecap="round"/>' +
+          '</svg>' +
+          '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff">' + pair.score + '%</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="padding:12px 14px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">' +
+        statusBadge +
+        '<span style="font-size:10.5px;color:var(--ts);font-weight:600"><i class="fas fa-tag" style="margin-right:3px;color:var(--ac)"></i>6 topics</span>' +
+      '</div>' +
+      '<p style="font-size:11px;color:var(--ts);margin-bottom:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + topicFull + '">' + topicLine + '</p>' +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+        '<button class="btn bg2 sm" style="flex:1;font-size:11px" onclick="showPairDetail(' + pair.idx + ')"><i class="fas fa-eye"></i> Details</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  // Lock the grid — no other function can overwrite it
+  _participantGridLocked = true;
+  grid.setAttribute('data-rendered-for', _e);
+  grid.setAttribute('data-rendered-pair', String(_myIdx));
+
+  // Also update KPIs for participant context (must come BEFORE subhead override)
+  updatePairKPIs();
+
+  // Update subheading for participant (AFTER updatePairKPIs which sets generic text)
+  var subhead = document.getElementById("pairs-subhead");
+  if (subhead) subhead.textContent = "(Your pair \u2022 " + pair.score + "% match)";
+}
+
+
 function showPairDetail(idx) {
-  const p = PAIRS[idx] || DUMMY_PAIRS.find(d => d.idx === idx);
-  if (!p) return;
-  document.getElementById("pmod-title").textContent = `${p.m1} & ${p.m2} — Pair Details`;
+  // v108: Restore v76 pattern — for participants, always show their own pair
+  if (CURRENT_ROLE === 'participant') {
+    idx = MY_PAIR_IDX;
+  }
+  const p = PAIRS[idx] || _findPairByIdx(idx);
+  if (!p) return;  document.getElementById("pmod-title").textContent = `${p.m1} & ${p.m2} — Pair Details`;
   const statusBadge = p.status === "Approved"
     ? `<span class="bdg bgn">Approved</span>`
     : `<span class="bdg bor">Pending Approval</span>`;
+
+  // v105-FIX: Derive "Wants to Learn" / "Can Impart" from revTopics & tradTopics
+  // Experienced "Wants to Learn" = revTopics (early talent teaches them)
+  // Experienced "Can Impart" = tradTopics (they teach the early talent)
+  // Early Talent "Wants to Learn" = tradTopics (experienced teaches them)
+  // Early Talent "Can Impart" = revTopics (they teach the experienced)
+  const revTopics = p.revTopics || [];
+  const tradTopics = p.tradTopics || [];
+  const expLearn = p.expLearn || (revTopics.length > 0 ? revTopics.join(', ') : '—');
+  const expImpart = p.expImpart || (tradTopics.length > 0 ? tradTopics.join(', ') : '—');
+  const earlyLearn = p.earlyLearn || (tradTopics.length > 0 ? tradTopics.join(', ') : '—');
+  const earlyImpart = p.earlyImpart || (revTopics.length > 0 ? revTopics.join(', ') : '—');
+
   document.getElementById("pmod-body").innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
       <div class="ic"><p style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--ts)">Match Score</p><p style="font-size:26px;font-weight:900;color:${scoreColor(p.score)}">${p.score}%</p></div>
@@ -2636,9 +2922,9 @@ function showPairDetail(idx) {
             <div><p style="font-size:12px;font-weight:700">${p.m1}</p><p style="font-size:10px;color:var(--ts)">Experienced</p></div>
           </div>
           <p style="font-size:10px;font-weight:600;color:var(--ts);margin-bottom:3px">Wants to Learn</p>
-          <p style="font-size:11px;color:var(--tp);line-height:1.5">${p.expLearn||"—"}</p>
+          <p style="font-size:11px;color:var(--tp);line-height:1.5">${expLearn}</p>
           <p style="font-size:10px;font-weight:600;color:var(--ts);margin:6px 0 3px">Can Impart</p>
-          <p style="font-size:11px;color:var(--tp);line-height:1.5">${p.expImpart||"—"}</p>
+          <p style="font-size:11px;color:var(--tp);line-height:1.5">${expImpart}</p>
         </div>
         <div style="display:flex;align-items:center;padding:0 4px"><i class="fas fa-exchange-alt" style="color:var(--ts)"></i></div>
         <div class="ic" style="flex:1">
@@ -2647,9 +2933,9 @@ function showPairDetail(idx) {
             <div><p style="font-size:12px;font-weight:700">${p.m2}</p><p style="font-size:10px;color:var(--ts)">Early Talent</p></div>
           </div>
           <p style="font-size:10px;font-weight:600;color:var(--ts);margin-bottom:3px">Wants to Learn</p>
-          <p style="font-size:11px;color:var(--tp);line-height:1.5">${p.earlyLearn||"—"}</p>
+          <p style="font-size:11px;color:var(--tp);line-height:1.5">${earlyLearn}</p>
           <p style="font-size:10px;font-weight:600;color:var(--ts);margin:6px 0 3px">Can Impart</p>
-          <p style="font-size:11px;color:var(--tp);line-height:1.5">${p.earlyImpart||"—"}</p>
+          <p style="font-size:11px;color:var(--tp);line-height:1.5">${earlyImpart}</p>
         </div>
       </div>
     </div>
@@ -2685,8 +2971,8 @@ function showPairDetail(idx) {
 }
 
 function toggleApprovePair(idx) {
-  const p = PAIRS[idx];
-  if (!p) { console.error('[FB] toggleApprovePair: PAIRS['+idx+'] is undefined!'); return; }
+  const p = _findPairByIdx(idx);
+  if (!p) { console.error('[FB] toggleApprovePair: pair idx='+idx+' not found!'); return; }
   if (p.status === "Approved") {
     p.status = "Pending";
     showToast(`Pair ${p.m1} & ${p.m2} unapproved and set back to Pending.`);
@@ -2747,7 +3033,8 @@ function pairTopicLabel(p) {
 }
 
 function repairPair(idx) {
-  const p = PAIRS[idx];
+  const p = _findPairByIdx(idx);
+  if (!p) return;
   const currentScore = computeMatchScore(p.expLearn, p.expImpart, p.earlyLearn, p.earlyImpart);
 
   let bestGain    = 0;
@@ -2921,8 +3208,10 @@ function updatePairKPIs() {
   set("kpi-approval-rate", rate + "%");
   set("kpi-approval-sub",  rateLabel);
   set("kpi-avg-score",     avgScore + "%");
-  // pairs sub-heading
-  set("pairs-subhead",     "(" + PAIRS.length + " total · avg " + avgScore + "% match)");
+  // pairs sub-heading (skip for participant — _renderParticipantGrid sets its own label)
+  if (CURRENT_ROLE !== 'participant') {
+    set("pairs-subhead",     "(" + PAIRS.length + " total · avg " + avgScore + "% match)");
+  }
   // other-pairs notice
   set("other-pairs-count", (PAIRS.length - 1) + " other pairs in this cohort");
   // Page 5 KPIs (if present)
@@ -2940,6 +3229,22 @@ function updateJourneyGuard() {
   // regardless of approval status. Pending status just means kick-off
   // hasn't happened yet, not that content should be hidden.
   lock.style.display = "none";
+  // Update NPS participant banner visibility
+  updateNPSBanner();
+}
+
+function updateNPSBanner() {
+  const banner = document.getElementById("nps-participant-banner");
+  if (!banner) return;
+  const sess = JSON.parse(sessionStorage.getItem("cgm_session") || "null");
+  const isParticipant = sess && sess.role === "participant";
+  const surveyActive = NPS_SURVEY_ACTIVE || !!localStorage.getItem("cgm_nps_launched");
+  const alreadyDone = !!localStorage.getItem("cgm_nps_done");
+  if (isParticipant && surveyActive && !alreadyDone) {
+    banner.style.display = "flex";
+  } else {
+    banner.style.display = "none";
+  }
 }
 
 
@@ -2979,7 +3284,7 @@ function toTopicTitle(s) {
 }
 
 function generatePairCurriculum(pairIdx) {
-  const p = PAIRS[pairIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === pairIdx));
+  const p = _findPairByIdx(pairIdx);
   if (!p) return {rev:[], trad:[]};
   const weeks = ["Week 1-2","Week 3-4","Week 5-6"];
 
@@ -3122,9 +3427,10 @@ function renderCurriculum(tabIdx) {
   const el = document.getElementById("c" + tabIdx);
   if (!el) return;
   if (!topics || !topics.length) { el.innerHTML = '<p style="font-size:12px;color:var(--ts);padding:12px">Generating curriculum...</p>'; return; }
-  // Use currently selected pair in Journey Tracker
-  const pair = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
-  const pj   = PAIR_JOURNEY[currentJourneyIdx] || PAIR_JOURNEY[0];
+  // v108: Use PAIRS[currentJourneyIdx] directly (v76 pattern) — _findPairByIdx handles dummy pairs
+  const pair = PAIRS[currentJourneyIdx] || _findPairByIdx(currentJourneyIdx);
+  if (!pair) return;
+  const pj   = PAIR_JOURNEY[currentJourneyIdx] || {revDone:[false,false,false],tradDone:[false,false,false]};
   const doneArr = tabIdx === 1 ? pj.revDone : pj.tradDone;
   el.innerHTML = topics.map((t, i) => {
     const done = doneArr[i] || false;
@@ -3173,7 +3479,8 @@ function toggleTopic(tabIdx, itemIdx, cb) {
     document.getElementById("tmod").classList.add("open");
   } else {
     // Unchecking a completed topic — revert to pending
-    const pj = PAIR_JOURNEY[currentJourneyIdx] || PAIR_JOURNEY[0];
+    const pj = PAIR_JOURNEY[currentJourneyIdx];
+    if (!pj) return;
     if (tabIdx === 1) pj.revDone[itemIdx] = false;
     else pj.tradDone[itemIdx] = false;
     renderCurriculum(tabIdx);
@@ -3193,14 +3500,19 @@ function confirmTopicDate() {
   if (!dateVal) { showToast("Please select a date for this session."); return; }
   if (!pendingTopicMark) return;
   const {tabIdx, itemIdx} = pendingTopicMark;
-  const pj   = PAIR_JOURNEY[currentJourneyIdx] || PAIR_JOURNEY[0];
+  // Ensure PAIR_JOURNEY entry exists for this pair
+  if (!PAIR_JOURNEY[currentJourneyIdx]) {
+    PAIR_JOURNEY[currentJourneyIdx] = {revDone:[false,false,false],tradDone:[false,false,false]};
+  }
+  const pj   = PAIR_JOURNEY[currentJourneyIdx];
   if (tabIdx === 1) pj.revDone[itemIdx] = true;
   else pj.tradDone[itemIdx] = true;
   // Build auto-logged session entry
   const topics = tabIdx === 1 ? currentPairCurriculum.rev : currentPairCurriculum.trad;
   const topicTitle = (topics[itemIdx] ? topics[itemIdx].title : "Session").replace(/&amp;/g, "&");
   const sesType = tabIdx === 1 ? "Reverse" : "Traditional";
-  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
+  // v108: Use PAIRS[currentJourneyIdx] directly (v76 pattern) — _findPairByIdx handles dummy pairs
+  const p = PAIRS[currentJourneyIdx] || _findPairByIdx(currentJourneyIdx);
   const dateFormatted = new Date(dateVal + "T00:00:00").toLocaleDateString("en-GB", {day:"2-digit",month:"short",year:"numeric"});
   const noteVal = (document.getElementById("tmod-note").value || "").trim();
   const pairSessions = SESSIONS.filter(s => s.pairIdx === currentJourneyIdx);
@@ -3233,7 +3545,8 @@ function updateJourneyKPIs() {
   const pj = PAIR_JOURNEY[currentJourneyIdx] || { revDone:[], tradDone:[] };
   const _dp = typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx);
   const loggedSessions = SESSIONS.filter(s => s.pairIdx === currentJourneyIdx).length;
-  const doneSessions = loggedSessions + (_dp ? (_dp.testSessions || 0) : 0);
+  // Dummy pairs: sessions are now pre-populated in SESSIONS, so no need to add testSessions
+  const doneSessions = loggedSessions;
   // Topics done: for dummy pairs, PAIR_JOURNEY[idx] is already synced with DUMMY_PAIR_TOPICS
   const doneTopics = (pj.revDone || []).filter(Boolean).length + (pj.tradDone || []).filter(Boolean).length;
   const jsEl = document.getElementById("js");
@@ -3297,7 +3610,8 @@ function populateSessionTopicSelect() {
   if (sd) sd.value = new Date().toISOString().split("T")[0];
 
   // Show pair name in modal header
-  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[MY_PAIR_IDX];
+  // v108: Use PAIRS[currentJourneyIdx] directly (v76 pattern) — _findPairByIdx handles dummy pairs
+  const p = PAIRS[currentJourneyIdx] || _findPairByIdx(currentJourneyIdx);
   const modalTitle = document.querySelector('#smod h3');
   if (modalTitle && p) modalTitle.textContent = 'Log Session — ' + p.m1 + ' & ' + p.m2;
 
@@ -3335,13 +3649,17 @@ function renderSessionLog(pairIdx) {
       <td style="font-size:12px;color:var(--ts)">${s.actions||"—"}</td>
       <td><span class="bdg bgn"><i class="fas fa-check" style="font-size:9px;margin-right:3px"></i>Done</span></td>
       <td style="white-space:nowrap">
-        <button onclick="deleteSession(${idx})" title="Delete this session entry" style="background:none;border:1px solid rgba(187,33,36,.3);border-radius:6px;cursor:pointer;color:#BB2124;padding:3px 7px;font-size:11px;display:inline-flex;align-items:center;gap:4px;transition:background .15s" onmouseover="this.style.background='rgba(187,33,36,.08)'" onmouseout="this.style.background='none'"><i class="fas fa-trash-alt" style="font-size:10px"></i>Delete</button>
+        ${s.isDummy ? '<span style="font-size:10px;color:var(--ts);opacity:.6"><i class="fas fa-flask" style="font-size:9px;margin-right:3px"></i>Seed data</span>' : '<button onclick="deleteSession('+idx+')" title="Delete this session entry" style="background:none;border:1px solid rgba(187,33,36,.3);border-radius:6px;cursor:pointer;color:#BB2124;padding:3px 7px;font-size:11px;display:inline-flex;align-items:center;gap:4px;transition:background .15s" onmouseover="this.style.background=\'rgba(187,33,36,.08)\'" onmouseout="this.style.background=\'none\'"><i class="fas fa-trash-alt" style="font-size:10px"></i>Delete</button>'}
       </td>
     </tr>
   `).join("");
 }
 
 function loadJourney(idx) {
+  // v108: Restore v76 pattern — for participants, always force their pair idx
+  if (CURRENT_ROLE === 'participant') {
+    idx = MY_PAIR_IDX;
+  }
   currentJourneyIdx = parseInt(idx);
   currentPairCurriculum = generatePairCurriculum(currentJourneyIdx);
 
@@ -3350,11 +3668,21 @@ function loadJourney(idx) {
   if (pSel) {
     if (pSel.options.length === 0 || pSel._lastRole !== CURRENT_ROLE) {
       pSel.innerHTML = '';
-      PAIRS.forEach((p, i) => {
-        const opt = document.createElement('option');
-        opt.value = p.idx; opt.textContent = p.m1 + ' & ' + p.m2;
-        pSel.appendChild(opt);
-      });
+      if (CURRENT_ROLE === 'participant') {
+        // v112: Participant sees only their own pair in dropdown
+        const _myP = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
+        if (_myP) {
+          const opt = document.createElement('option');
+          opt.value = _myP.idx; opt.textContent = _myP.m1 + ' & ' + _myP.m2;
+          pSel.appendChild(opt);
+        }
+      } else {
+        PAIRS.forEach((p, i) => {
+          const opt = document.createElement('option');
+          opt.value = p.idx; opt.textContent = p.m1 + ' & ' + p.m2;
+          pSel.appendChild(opt);
+        });
+      }
       // Admin sees dummy pairs in dropdown too
       if (CURRENT_ROLE === 'admin' && typeof DUMMY_PAIRS !== 'undefined') {
         DUMMY_PAIRS.forEach(p => {
@@ -3371,7 +3699,7 @@ function loadJourney(idx) {
   // Participant pair pill
   const pill = document.getElementById('participant-pair-pill');
   if (pill) {
-    const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx));
+    const p = PAIRS[currentJourneyIdx] || _findPairByIdx(currentJourneyIdx);
     if (p) {
       pill.innerHTML =
         '<div class="av" style="background:'+p.c1+';width:22px;height:22px;font-size:8px">'+p.i1+'</div>' +
@@ -3381,8 +3709,8 @@ function loadJourney(idx) {
     }
   }
 
-  // Pair role banner
-  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx)) || PAIRS[0];
+  // Pair role banner — v108: use PAIRS[currentJourneyIdx] directly (v76 pattern)
+  const p = PAIRS[currentJourneyIdx] || _findPairByIdx(currentJourneyIdx) || _findPairByIdx(MY_PAIR_IDX);
   const rd = document.getElementById("pair-role-detail");
   if (rd && p) {
     rd.innerHTML =
@@ -3420,7 +3748,7 @@ function toggleCurrLabel(uid) {
 function updateCurrPairLabel() {
   const el = document.getElementById('curr-pair-label');
   if (!el) return;
-  const p = PAIRS[currentJourneyIdx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === currentJourneyIdx));
+  const p = _findPairByIdx(currentJourneyIdx);
   if (!p) return;
   const uid = 'pair' + currentJourneyIdx;
   const revSrc  = (p.earlyImpart || p.expLearn  || '').replace(/\.\.\.$/,'').trim();
@@ -3536,6 +3864,14 @@ function renderResources() {
 
 function handleRepoUpload(files) {
   if (!files || !files.length) return;
+  // Validate file size (max 20 MB per file)
+  const MAX_SIZE = 20 * 1024 * 1024;
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].size > MAX_SIZE) {
+      showToast('File "' + files[i].name + '" exceeds 20 MB limit. Please upload a smaller file.');
+      return;
+    }
+  }
   if (!PAIR_RESOURCES[currentJourneyIdx]) PAIR_RESOURCES[currentJourneyIdx] = [];
   const today = new Date().toLocaleDateString("en-GB", {day:"2-digit", month:"short", year:"numeric"});
   Array.from(files).forEach(file => {
@@ -3606,8 +3942,8 @@ function getPairScore(pairIdx) {
   const dp = DUMMY_PAIRS.find(p => p.idx === pairIdx);
   if (dp) {
     const ps = SESSIONS.filter(s => s.pairIdx === pairIdx);
-    const baseline = dp.testSessions || 0;
-    const totalSess = ps.length + baseline;
+    // Sessions are now pre-populated in SESSIONS array — no need to add testSessions baseline
+    const totalSess = ps.length;
     let assignedTopics = (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[pairIdx])
       ? DUMMY_PAIR_TOPICS[pairIdx].length : 0;
     // Fallback: if no topics explicitly assigned, use standard curriculum size (3 rev + 3 trad = 6)
@@ -3616,8 +3952,8 @@ function getPairScore(pairIdx) {
     const completionRatio = Math.min(totalSess / assignedTopics, 1);
     const meetings = Math.round(completionRatio * 40);
     const session  = Math.round(completionRatio * 35);
-    const reflReal = ps.filter(s => (s.summary||'').length > 40).length;
-    const reflRatio = Math.min((reflReal + Math.min(baseline, assignedTopics)) / assignedTopics, 1);
+    const reflReal = ps.filter(s => (s.summary||'').length > 20).length;
+    const reflRatio = Math.min(reflReal / assignedTopics, 1);
     const refl     = Math.round(reflRatio * 25);
     return { meetings, session, refl };
   }
@@ -3687,7 +4023,8 @@ function renderLeaderboard() {
       ? `<span style="font-weight:700;color:${col}">${pts}</span>`
       : `<span style="color:var(--ts);font-size:12px">&mdash;</span>`;
 
-    const isMyPair = p.idx === MY_PAIR_IDX;
+    const _lbMyIdx = _getMyPairIdx();
+    const isMyPair = p.idx === _lbMyIdx;
     const rowBg    = i === 0 ? "rgba(255,215,0,.08)" : i === 1 ? "rgba(184,184,184,.07)" : i === 2 ? "rgba(205,127,50,.07)" : isMyPair ? "rgba(0,112,242,.05)" : isDummyRow ? "rgba(108,99,255,.06)" : "";
     const youTag   = isMyPair ? '&nbsp;<span class="bdg bbl lb-you-tag" style="font-size:10px;vertical-align:middle">You</span>' : "";
     const testTag  = isDummyRow ? '&nbsp;<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;background:#EDE7FF;color:#5C35CC;border:1px solid #C5B8FA;vertical-align:middle"><i class="fas fa-flask"></i> Test</span>' : "";
@@ -3702,13 +4039,15 @@ function renderLeaderboard() {
   }).join("");
   // Update rank banner for participant
   if (CURRENT_ROLE === "participant") {
-    const myPair = PAIRS.find(p => p.idx === MY_PAIR_IDX) || PAIRS[0];
+    // v108: Restore v76 pattern — use MY_PAIR_IDX directly
+    const _rbIdx = MY_PAIR_IDX;
+    const myPair = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
     if (!myPair) return;
     const rankTitle = document.getElementById("rank-banner-title");
     const rankSub   = document.getElementById("rank-banner-sub");
     const rankPts   = document.getElementById("rank-banner-pts");
-    const myRank = sorted.findIndex(p => p.idx === MY_PAIR_IDX) + 1;
-    const myScore = getPairScore(MY_PAIR_IDX);
+    const myRank = sorted.findIndex(p => p.idx === _rbIdx) + 1;
+    const myScore = getPairScore(_rbIdx);
     const myTotal = myScore.meetings + myScore.session + myScore.refl;
     const ordinals = ["","1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th"];
     if (myTotal > 0) {
@@ -3878,7 +4217,7 @@ function _resetDropzone() {
   if (!dz) return;
   dz.innerHTML = '<i class="fas fa-cloud-upload-alt" style="font-size:30px;color:#0070F2;display:block;margin-bottom:8px"></i>' +
     '<p style="font-size:13px;font-weight:600;color:var(--tp);margin:0 0 4px">Click to browse or drag &amp; drop</p>' +
-    '<p style="font-size:11.5px;color:var(--ts);margin:0">PDF, PPTX, DOCX, XLSX, ZIP &nbsp;&middot;&nbsp; Max 3 MB per file</p>';
+    '<p style="font-size:11.5px;color:var(--ts);margin:0">PDF, PPTX, DOCX, XLSX, ZIP &nbsp;&middot;&nbsp; Max 20 MB per file</p>';
   dz.style.borderColor = 'var(--bd)';
   dz.style.background  = 'var(--pb)';
 }
@@ -3888,8 +4227,8 @@ function handleFileSelect(file) {
   const errEl = document.getElementById('mat-upload-error');
   if (errEl) errEl.style.display = 'none';
 
-  if (file.size > 3 * 1024 * 1024) {
-    if (errEl) { errEl.textContent = 'File too large (' + _fmtSize(file.size) + '). Maximum is 3 MB.'; errEl.style.display = 'block'; }
+  if (file.size > 20 * 1024 * 1024) {
+    if (errEl) { errEl.textContent = 'File too large (' + _fmtSize(file.size) + '). Maximum is 20 MB.'; errEl.style.display = 'block'; }
     return;
   }
   _pendingFile = file;
@@ -4198,8 +4537,10 @@ function renderInsightCharts() {
 // =========================================================
 function openScheduleModal() {
   const pairSel = document.getElementById("pair-sel");
-  const idx = pairSel ? parseInt(pairSel.value) : MY_PAIR_IDX;
-  const p = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
+  const _schMyIdx = _getMyPairIdx();
+  const idx = pairSel ? parseInt(pairSel.value) : _schMyIdx;
+  const p = _findPairByIdx(idx) || _findPairByIdx(_schMyIdx);
+  if (!p) { showToast("No pair selected."); return; }
   // Pre-fill pair info
   const pairNames = document.getElementById("sch-pair-names");
   if (pairNames) pairNames.innerHTML =
@@ -4213,8 +4554,9 @@ function openScheduleModal() {
 
 function openOutlookCalendar() {
   const pairSel = document.getElementById("pair-sel");
-  const idx = pairSel ? parseInt(pairSel.value) : MY_PAIR_IDX;
-  const p = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
+  const _olMyIdx = _getMyPairIdx();
+  const idx = pairSel ? parseInt(pairSel.value) : _olMyIdx;
+  const p = _findPairByIdx(idx) || _findPairByIdx(_olMyIdx);
 
   const dateVal  = document.getElementById("sch-date").value;
   const timeVal  = document.getElementById("sch-time").value || "10:00";
@@ -4483,12 +4825,13 @@ function _bootPortal(session) {
   updatePairKPIs();
   updateJourneyGuard();
   // Page 2 — setRole() already called loadJourney for the correct pair
-  // (participant → MY_PAIR_IDX, admin/guest → pair 0 from dropdown)
+  // (participant → _getMyPairIdx(), admin/guest → pair 0 from dropdown)
   // No second loadJourney call here; avoids overriding admin's correct init.
   // Init participant pair pill with actual pair names
   const pill = document.getElementById('participant-pair-pill');
   if (pill) {
-    const mp = PAIRS[MY_PAIR_IDX];
+    // v108: Restore v76 pattern — PAIRS[MY_PAIR_IDX] directly
+    const mp = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
     if (mp) {
       pill.innerHTML =
         '<div class="av" style="background:' + mp.c1 + ';width:22px;height:22px;font-size:8px">' + mp.i1 + '</div>' +
@@ -4525,20 +4868,69 @@ function _bootPortal(session) {
     const banner = document.getElementById("nps-survey-banner");
     if (banner) banner.style.display = "flex";
   }
+  // v108: No special participant grid re-render needed — renderPairs() in setRole handles it (v76 pattern)
+
   // ── Firebase: start real-time listeners + show connection status ──
   _fbStartListeners();
   _fbShowStatus();
 }
 
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
+// v112: Pre-load dummy pairs from Firebase BEFORE allowing login,
+// so dynamically-added dummy pairs can log in as participants.
+function _fbPreloadDummyPairs(callback) {
+  if (!_fbDB) { callback(); return; }
+  let loaded = 0;
+  const done = () => { loaded++; if (loaded >= 2) callback(); };
+  _fbDB.ref('dummyPairs').once('value', snap => {
+    const data = snap.val();
+    if (data) {
+      const arr = Array.isArray(data) ? data : Object.values(data);
+      DUMMY_PAIRS.length = 0;
+      arr.forEach(d => { if (d) { d.idx = Number(d.idx); d.score = Number(d.score) || 85; d.sessions = Number(d.sessions) || 0; d.testSessions = Number(d.testSessions) || d.sessions; DUMMY_PAIRS.push(d); } });
+      DUMMY_PARTICIPANTS.length = 0;
+      DUMMY_PAIRS.forEach(dp => {
+        DUMMY_PARTICIPANTS.push({name:dp.m1, type:'experienced', email:dp.email1, status:'Paired', loc:'India', isDummy:true});
+        DUMMY_PARTICIPANTS.push({name:dp.m2, type:'early', email:dp.email2, status:'Paired', loc:'India', isDummy:true});
+      });
+      const maxDummyIdx = DUMMY_PAIRS.reduce((mx, dp) => Math.max(mx, Number(dp.idx) || 0), 99);
+      _dummyCounter = maxDummyIdx - 100 + 1;
+      console.log('[FB] Pre-loaded', DUMMY_PAIRS.length, 'dummy pairs before login');
+    }
+    done();
+  }, err => { console.warn('[FB] Pre-load pairs failed:', err.message); done(); });
+  _fbDB.ref('dummyPairTopics').once('value', snap => {
+    const data = snap.val();
+    if (data && typeof data === 'object') {
+      Object.keys(data).forEach(key => { DUMMY_PAIR_TOPICS[parseInt(key)] = data[key]; });
+      console.log('[FB] Pre-loaded dummy pair topics');
+    }
+    done();
+  }, err => { console.warn('[FB] Pre-load topics failed:', err.message); done(); });
+}
+
 function __init() {
   if (__init.done) return; __init.done = true;
+  // v112: Load dummy pairs from Firebase first, then proceed with login
+  _fbPreloadDummyPairs(() => {
+    _initAfterPreload();
+  });
+}
+
+function _initAfterPreload() {
   // Restore existing session (survives page refresh within same browser tab)
   try {
     const raw = sessionStorage.getItem('cgm_session');
     if (raw) {
-      const session = JSON.parse(raw);
-      if (session && session.role && session.email) { applySession(session); return; }
+      const stored = JSON.parse(raw);
+      if (stored && stored.email) {
+        // ALWAYS regenerate a fresh session from email to guarantee correct pairIdx
+        const freshSession = identifyUser(stored.email) || guestSession(stored.email);
+        if (freshSession && freshSession.role && freshSession.email) {
+          applySession(freshSession);
+          return;
+        }
+      }
     }
   } catch(e) { try { sessionStorage.removeItem('cgm_session'); } catch(_) {} }
   // No valid session — show login overlay
@@ -4560,11 +4952,13 @@ function renderParticipantPairingView() {
   var hero = document.getElementById("p1-participant-hero");
   if (!hero) return;
 
-  var pair = PAIRS[MY_PAIR_IDX];
+  // v108: Restore v76 pattern — use PAIRS[MY_PAIR_IDX] directly
+  var pair = PAIRS[MY_PAIR_IDX] || _findPairByIdx(MY_PAIR_IDX);
   if (!pair) { hero.innerHTML = ""; return; }
 
-  var sess    = CURRENT_SESSION || {};
-  var isM1    = sess.email && sess.email.toLowerCase() === pair.email1.toLowerCase();
+  var sess = CURRENT_SESSION || {};
+  var _e = (sess.email || '').toLowerCase();
+  var isM1    = pair.email1 && _e === pair.email1.toLowerCase();
   var myName  = isM1 ? pair.m1  : pair.m2;
   var myInit  = isM1 ? pair.i1  : pair.i2;
   var myColor = isM1 ? pair.c1  : pair.c2;
@@ -4939,6 +5333,7 @@ function submitNPS() {
   const mod = document.getElementById("nps-mod");
   if (mod) mod.classList.remove("open");
   showToast("Thank you for your feedback — your response has been recorded.");
+  updateNPSBanner();
   updateP5NPSStats();
   _fbSyncFeedback();
 }
@@ -5046,6 +5441,8 @@ function updateP5NPSStats() {
   if (NPS_PREBAKED_ACTIVE || localStorage.getItem("cgm_nps_launched")) {
     NPS_SURVEY_ACTIVE = true;
   }
+  // Defer banner update to after DOM is ready
+  setTimeout(function(){ if (typeof updateNPSBanner === 'function') updateNPSBanner(); }, 200);
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5095,7 +5492,7 @@ function exportInsightsCSV() {
   const rows = sorted.map((p, i) => {
     const sc = getPairScore(p.idx);
     const total = sc.meetings + sc.session + sc.refl;
-    const sessCount = SESSIONS.filter(s => s.pairIdx === p.idx).length + (p.isDummy ? (p.testSessions||0) : 0);
+    const sessCount = SESSIONS.filter(s => s.pairIdx === p.idx).length;
     return [i + 1, p.m1 + ' & ' + p.m2, total + ' pts', p.score + '%', sessCount, (p.cats || []).slice(0, 3).join('; '), p.status || 'Pending'];
   });
   _downloadCSV('CGM_Insights_Report_India2026.csv', hdrs, rows);
@@ -5145,13 +5542,12 @@ function exportInsightsPPT() {
     const approved = PAIRS.filter(p => p.status === 'Approved').length;
     const avgScore = total ? Math.round(PAIRS.reduce((s, p) => s + (p.score || 0), 0) / total) : 0;
     const totalSessions = SESSIONS.length;
-    const dummySessions = (typeof DUMMY_PAIRS !== 'undefined') ? DUMMY_PAIRS.reduce((s, d) => s + (d.testSessions || 0), 0) : 0;
 
     const metrics = [
       {label:'Total Pairs', value:String(total), color:SAP_BLUE},
       {label:'Participants', value:String(total * 2), color:SAP_GREEN},
       {label:'Avg Match Score', value:avgScore + '%', color:SAP_AMBER},
-      {label:'Sessions Logged', value:String(totalSessions + dummySessions), color:'E9730C'},
+      {label:'Sessions Logged', value:String(totalSessions), color:'E9730C'},
     ];
     metrics.forEach((m, i) => {
       const x = 0.5 + i * 2.3;
@@ -5236,8 +5632,9 @@ function exportInsightsPPT() {
 // JOURNEY TRACKER — PROGRESS REPORT EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
 function exportProgressReport() {
-  const idx    = typeof currentJourneyIdx !== 'undefined' ? currentJourneyIdx : MY_PAIR_IDX;
-  const pair   = PAIRS[idx] || (typeof DUMMY_PAIRS !== 'undefined' && DUMMY_PAIRS.find(d => d.idx === idx)) || PAIRS[MY_PAIR_IDX];
+  const _expMyIdx = _getMyPairIdx();
+  const idx    = typeof currentJourneyIdx !== 'undefined' ? currentJourneyIdx : _expMyIdx;
+  const pair   = _findPairByIdx(idx) || _findPairByIdx(_expMyIdx);
   const topics = (PAIR_TOPICS && PAIR_TOPICS[idx]) ? PAIR_TOPICS[idx] : (typeof DUMMY_PAIR_TOPICS !== 'undefined' && DUMMY_PAIR_TOPICS[idx]) ? DUMMY_PAIR_TOPICS[idx] : [];
   const state  = _getJourneyState(idx);
 
@@ -5346,9 +5743,23 @@ function saveAddDummyPair() {
   const email1 = mentorEmail;
   const email2 = menteeEmail;
 
-  const newPair = {idx, m1:mentor, m2:mentee, i1, i2, c1, c2, score, loc:'India', status:'Approved', badge:'&#127775;', sessions, isDummy:true, testSessions:sessions, email1, email2, cats:['Test Data'], topics:'', tradTopics:[], revTopics:[]};
+  // v112: Auto-populate meaningful topics from rotating pool
+  const _TOPIC_SETS = [
+    {rev:['AI productivity tools','Async vs formal communication','Gen Z approach to problem solving'], trad:['Career planning without a fixed roadmap','Building visibility at work','Strategic Thinking'], cats:['AI & Technology','Career & Growth']},
+    {rev:['Cross-generational communication styles','Feedback culture across generations','Inclusive team dynamics'], trad:['Building trust in new teams','Active listening and empathy at work','Managing expectations across experience levels'], cats:['Communication','People & Culture']},
+    {rev:['Strategic thinking for early career','Product roadmap evolution','Innovation and risk appetite'], trad:['Decision-making in ambiguity','Leadership transition frameworks','Stakeholder management'], cats:['Strategy & Decisions','Career & Growth']},
+    {rev:['Navigating hybrid work culture','Giving upward feedback','Personal branding in corporate'], trad:['Emotional intelligence at work','Building cross-team relationships','Conflict resolution approaches'], cats:['People & Culture','Communication']},
+    {rev:['How Gen Z learns and upskills in an AI world','AI experimentation and adoption mindset','Self-directed learning and side projects'], trad:['What makes someone an effective team player','Decision-making in complex situations','Workplace expectations around flexibility'], cats:['AI & Technology','Career & Growth','Communication']},
+  ];
+  const _topicSet = _TOPIC_SETS[(_dummyCounter - 1) % _TOPIC_SETS.length];
+  const _autoRevTopics = _topicSet.rev;
+  const _autoTradTopics = _topicSet.trad;
+  const _autoTopics = [..._autoRevTopics, ..._autoTradTopics].join(', ');
+  const _autoCats = _topicSet.cats;
+
+  const newPair = {idx, m1:mentor, m2:mentee, i1, i2, c1, c2, score, loc:'India', status:'Approved', badge:'&#127775;', sessions, isDummy:true, testSessions:sessions, email1, email2, cats:_autoCats, topics:_autoTopics, tradTopics:_autoTradTopics, revTopics:_autoRevTopics};
   DUMMY_PAIRS.push(newPair);
-  // Generate curriculum-based topics so scoring and journey tracker work immediately
+  // Generate curriculum-based topics (now uses auto-populated revTopics/tradTopics)
   const _curriculum = generatePairCurriculum(idx);
   const _genTopics = [];
   (_curriculum.rev || []).forEach((t, i) => _genTopics.push({t: t.title, type:'Reverse', done: i < Math.ceil(sessions / 2)}));

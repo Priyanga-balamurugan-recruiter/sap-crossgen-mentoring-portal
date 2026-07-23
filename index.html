@@ -1357,7 +1357,7 @@ function _fbSyncResources() {
   const obj = {};
   Object.keys(PAIR_RESOURCES).forEach(k => {
     if (PAIR_RESOURCES[k] && PAIR_RESOURCES[k].length) {
-      obj[k] = PAIR_RESOURCES[k].map(r => ({name:r.name, size:r.size, type:r.type, date:r.date}));
+      obj[k] = PAIR_RESOURCES[k].map(r => ({name:r.name, size:r.size, type:r.type, date:r.date, url:r.url || ''}));
     }
   });
   console.log('[FB] Writing resources:', Object.keys(obj).length, 'pairs with files');
@@ -1381,6 +1381,38 @@ function _fbListenResources() {
     }
   });
 }
+
+// v114: Firebase sync for Program Materials (global, visible to all users)
+function _fbSyncMaterials(arr) {
+  if (!_fbDB) return;
+  if (!arr) arr = _getMaterials();
+  // Store materials with dataUrl included so all users can download
+  _fbDB.ref('materials').set(arr)
+    .then(() => console.log('[FB] materials synced:', arr.length, 'files'))
+    .catch(e => console.error('[FB] materials sync FAILED:', e));
+}
+
+function _fbListenMaterials() {
+  if (!_fbDB) return;
+  _fbDB.ref('materials').on('value', snap => {
+    if (_fbSyncing) return;
+    const data = snap.val();
+    if (data && Array.isArray(data)) {
+      _fbSyncing = true; _fbSyncGuard();
+      try {
+        // Update localStorage with Firebase data (source of truth)
+        localStorage.setItem(MAT_STORE_KEY, JSON.stringify(data));
+        if (typeof renderMaterials === 'function') renderMaterials();
+      } catch(e) { console.warn('FB listener error (materials):', e); }
+      _fbSyncing = false;
+    } else if (data === null) {
+      // Firebase is empty — push local materials if any exist
+      const local = _getMaterials();
+      if (local.length > 0) _fbSyncMaterials(local);
+    }
+  });
+}
+
 
 // ── Master: Start all listeners on page load ────────────────────────────────
 function _fbStartListeners() {
@@ -1406,6 +1438,7 @@ function _fbStartListeners() {
   _fbListenDummyPairs();
   _fbListenFeedback();
   _fbListenResources();
+  _fbListenMaterials();
 }
 
 // ── Connection status indicator ─────────────────────────────────────────────
@@ -3874,18 +3907,26 @@ function handleRepoUpload(files) {
   }
   if (!PAIR_RESOURCES[currentJourneyIdx]) PAIR_RESOURCES[currentJourneyIdx] = [];
   const today = new Date().toLocaleDateString("en-GB", {day:"2-digit", month:"short", year:"numeric"});
+  let _repoUploadsRemaining = files.length;
   Array.from(files).forEach(file => {
-    PAIR_RESOURCES[currentJourneyIdx].push({
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      url:  URL.createObjectURL(file),
-      date: today
-    });
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      PAIR_RESOURCES[currentJourneyIdx].push({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url:  ev.target.result,
+        date: today
+      });
+      _repoUploadsRemaining--;
+      if (_repoUploadsRemaining === 0) {
+        renderResources();
+        updateJourneyKPIs();
+        _fbSyncResources();
+      }
+    };
+    reader.readAsDataURL(file);
   });
-  renderResources();
-  updateJourneyKPIs();
-  _fbSyncResources();
   const n = files.length;
   showToast(n === 1 ? `"${files[0].name}" added to repository.` : `${n} files added to repository.`);
 }
@@ -4167,6 +4208,8 @@ function _getMaterials() {
 }
 function _saveMaterials(arr) {
   localStorage.setItem(MAT_STORE_KEY, JSON.stringify(arr));
+  // v114: Sync materials to Firebase so all users can access them
+  _fbSyncMaterials(arr);
 }
 
 const _MAT_ICONS = {
@@ -4631,6 +4674,164 @@ function buildRecipientList(group) {
   }
 }
 
+// v114: Auto-personalize "Meet Your Match" email per pair member
+function _personalizeMatchEmail(pairIdx, forMember) {
+  const p = PAIRS[pairIdx] || _findPairByIdx(pairIdx);
+  if (!p) return '';
+  const curr = generatePairCurriculum(pairIdx);
+  const isM1 = (forMember === 'experienced');
+  const recipientName = isM1 ? p.m1 : p.m2;
+  const partnerName = isM1 ? p.m2 : p.m1;
+  const partnerRole = isM1 ? 'Early Talent' : 'Experienced Talent';
+  const revTopics = (curr.rev || []).map((t,i) => '  ' + (i+1) + '. ' + t.title).join('\n');
+  const tradTopics = (curr.trad || []).map((t,i) => '  ' + (i+1) + '. ' + t.title).join('\n');
+  return `Dear ${recipientName},
+
+We are excited to introduce you to your Cross-Generational Mentoring partner!
+
+\u{1F91D} Your Mentoring Partner: ${partnerName}
+\u{1F310} Location: SAP India
+
+Your personalised curriculum has been generated based on both your pre-programme interview responses. Here is what your mentoring journey will cover:
+
+REVERSE MENTORING (Early Talent facilitates)
+${revTopics}
+
+TRADITIONAL MENTORING (Experienced facilitates)
+${tradTopics}
+
+\u{1F4C5} Programme Duration: 3 months (July \u2013 September 2026)
+\u{1F3AF} Goal: Complete all 6 sessions and climb the leaderboard!
+
+Next Steps:
+  1. Introduce yourself to your partner via Teams or email.
+  2. Schedule your first session within 2 weeks (45\u201360 min recommended).
+  3. Log in to the Mentoring Portal to see full curriculum details and track progress.
+
+Access the portal: https://priyanga-balamurugan-recruiter.github.io/sap-crossgen-mentoring-portal/
+
+In case you could not join the kick-off session or want to refer to the details discussed during it, here\u2019s the recording: Cross Generational Mentoring Kickoff Session
+
+Warm regards,
+SAP India \u2014 Cross-Generational Mentoring`;
+}
+
+// v114: Generate all personalized emails for bulk sending
+function _generateAllMatchEmails() {
+  const allPairs = PAIRS;
+  let result = [];
+  allPairs.forEach((p, i) => {
+    result.push({pair: p, m1Body: _personalizeMatchEmail(p.idx, 'experienced'), m2Body: _personalizeMatchEmail(p.idx, 'early')});
+  });
+  return result;
+}
+
+// v114: Open pair-by-pair email send modal
+function openPairEmailModal() {
+  let m = document.getElementById('pair-email-modal');
+  if (m) m.remove();
+  m = document.createElement('div');
+  m.id = 'pair-email-modal';
+  m.className = 'mover open';
+  const allPairs = getAllPairs().filter(p => !p.isDummy);
+  const pairOptions = allPairs.map(p => '<option value="' + p.idx + '">' + p.m1 + ' & ' + p.m2 + '</option>').join('');
+  m.innerHTML = `
+    <div class="mbox" style="max-width:720px;width:95vw;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--bd);margin-bottom:14px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#E3F2FD;display:flex;align-items:center;justify-content:center"><i class="fas fa-handshake" style="color:#0070F2;font-size:15px"></i></div>
+          <div>
+            <h3 style="font-size:15px;font-weight:700;color:var(--tp)">Meet Your Match \u2014 Personalised Emails</h3>
+            <p style="font-size:11.5px;color:var(--ts)">Auto-generated from each pair\u2019s curriculum. Select a pair to preview or send all.</p>
+          </div>
+        </div>
+        <button onclick="document.getElementById('pair-email-modal').remove()" style="background:none;border:none;cursor:pointer;color:var(--ts);font-size:16px"><i class="fas fa-times"></i></button>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-shrink:0;flex-wrap:wrap">
+        <select id="pe-pair-sel" onchange="_pePairChanged()" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid var(--bd);border-radius:8px;font-size:13px;background:var(--sb);color:var(--tp)">
+          ${pairOptions}
+        </select>
+        <div style="display:flex;gap:6px">
+          <button id="pe-m1-btn" onclick="_peSelectMember('experienced')" class="btn bp sm" style="font-size:11px;padding:5px 12px">Experienced</button>
+          <button id="pe-m2-btn" onclick="_peSelectMember('early')" class="btn bg2 sm" style="font-size:11px;padding:5px 12px">Early Talent</button>
+        </div>
+        <button onclick="_peSendAll()" class="btn sm" style="font-size:11px;padding:5px 14px;background:#107E3E;color:#fff;border:none;border-radius:8px;cursor:pointer"><i class="fas fa-paper-plane" style="margin-right:4px"></i>Copy All Emails</button>
+      </div>
+      <div style="margin-bottom:10px;flex-shrink:0;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--ts);text-transform:uppercase">To:</span>
+        <span id="pe-recipient" style="font-size:12px;color:var(--tp);font-weight:600"></span>
+        <button onclick="_peCopyRecipient()" class="btn bg2 sm" style="font-size:10px;padding:2px 8px;margin-left:auto"><i class="fas fa-copy"></i> Copy Email</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;border:1px solid var(--bd);border-radius:8px;background:var(--sb)">
+        <pre id="pe-body" style="white-space:pre-wrap;font-size:12.5px;color:var(--tp);padding:16px;margin:0;font-family:inherit;line-height:1.7"></pre>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-shrink:0">
+        <button onclick="_peCopyBody()" class="btn bp" style="flex:1;font-size:12px;justify-content:center"><i class="fas fa-copy"></i> Copy This Email</button>
+        <button onclick="_peOpenOutlook()" class="btn" style="flex:1;font-size:12px;justify-content:center;background:#0078D4;color:#fff;border:none;border-radius:8px;cursor:pointer"><i class="fas fa-envelope"></i> Open in Outlook</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  _peCurrentMember = 'experienced';
+  _pePairChanged();
+}
+var _peCurrentMember = 'experienced';
+function _pePairChanged() {
+  const idx = parseInt(document.getElementById('pe-pair-sel').value);
+  const p = PAIRS[idx] || _findPairByIdx(idx);
+  if (!p) return;
+  const body = _personalizeMatchEmail(idx, _peCurrentMember);
+  document.getElementById('pe-body').textContent = body;
+  const recipEmail = _peCurrentMember === 'experienced' ? p.email1 : p.email2;
+  document.getElementById('pe-recipient').textContent = (_peCurrentMember === 'experienced' ? p.m1 : p.m2) + ' <' + recipEmail + '>';
+}
+function _peSelectMember(member) {
+  _peCurrentMember = member;
+  document.getElementById('pe-m1-btn').className = 'btn ' + (member === 'experienced' ? 'bp' : 'bg2') + ' sm';
+  document.getElementById('pe-m2-btn').className = 'btn ' + (member === 'early' ? 'bp' : 'bg2') + ' sm';
+  document.getElementById('pe-m1-btn').style.cssText = 'font-size:11px;padding:5px 12px' + (member === 'experienced' ? ';background:#0070F2;color:#fff;border-color:#0070F2' : '');
+  document.getElementById('pe-m2-btn').style.cssText = 'font-size:11px;padding:5px 12px' + (member === 'early' ? ';background:#0070F2;color:#fff;border-color:#0070F2' : '');
+  _pePairChanged();
+}
+function _peCopyBody() {
+  const body = document.getElementById('pe-body').textContent;
+  const subj = 'SAP Cross-Generational Mentoring \u2014 Meet Your Match!';
+  _copyText('Subject: ' + subj + '\n\n' + body, 'Personalised email copied to clipboard.');
+}
+function _peCopyRecipient() {
+  const el = document.getElementById('pe-recipient');
+  const email = el.textContent.match(/<(.+?)>/);
+  _copyText(email ? email[1] : el.textContent, 'Recipient email copied.');
+}
+function _peOpenOutlook() {
+  const idx = parseInt(document.getElementById('pe-pair-sel').value);
+  const p = PAIRS[idx] || _findPairByIdx(idx);
+  if (!p) return;
+  const recipEmail = _peCurrentMember === 'experienced' ? p.email1 : p.email2;
+  const body = document.getElementById('pe-body').textContent;
+  const subj = encodeURIComponent('SAP Cross-Generational Mentoring \u2014 Meet Your Match!');
+  const mailBody = encodeURIComponent(body);
+  window.open('mailto:' + recipEmail + '?subject=' + subj + '&body=' + mailBody, '_blank');
+}
+function _peSendAll() {
+  const allPairs = PAIRS;
+  let fullText = '';
+  allPairs.forEach(p => {
+    const m1Body = _personalizeMatchEmail(p.idx, 'experienced');
+    const m2Body = _personalizeMatchEmail(p.idx, 'early');
+    fullText += '═══════════════════════════════════════\n';
+    fullText += 'TO: ' + p.m1 + ' <' + p.email1 + '>\n';
+    fullText += '═══════════════════════════════════════\n';
+    fullText += m1Body + '\n\n';
+    fullText += '═══════════════════════════════════════\n';
+    fullText += 'TO: ' + p.m2 + ' <' + p.email2 + '>\n';
+    fullText += '═══════════════════════════════════════\n';
+    fullText += m2Body + '\n\n\n';
+  });
+  _copyText(fullText, 'All ' + (allPairs.length * 2) + ' personalised emails copied to clipboard!');
+}
+
+
+
 function selectEmailGroup(group) {
   _emailGroup = group;
   // Update button styles
@@ -4675,9 +4876,7 @@ function renderEmailTemplates() {
           <p style="font-size:11.5px;color:var(--ts);line-height:1.45">${t.desc}</p>
         </div>
       </div>
-      <button class="btn bp sm" style="width:100%;justify-content:center;font-size:12px" onclick="openEmailCompose(${i})">
-        <i class="fas fa-edit"></i> Compose & Send
-      </button>
+      ${t.id === 'meet-your-match' ? `<div style="display:flex;gap:6px"><button class="btn bp sm" style="flex:1;justify-content:center;font-size:11px" onclick="openPairEmailModal()"><i class="fas fa-users"></i> Send by Pair</button><button class="btn bg2 sm" style="flex:1;justify-content:center;font-size:11px" onclick="openEmailCompose(${i})"><i class="fas fa-edit"></i> Generic</button></div>` : `<button class="btn bp sm" style="width:100%;justify-content:center;font-size:12px" onclick="openEmailCompose(${i})"><i class="fas fa-edit"></i> Compose & Send</button>`}
     </div>`).join("");
 }
 
